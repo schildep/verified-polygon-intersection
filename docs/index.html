@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Multipolygon Intersection (Lean-verified)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+    #toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px;
+      align-items: center;
+      background: #f7f7f7;
+      border-bottom: 1px solid #ddd;
+    }
+    #status {
+      flex: 1 1 100%;
+      min-width: 200px;
+      font-size: 14px;
+      padding: 4px 8px;
+      padding-right: 120px;
+    }
+    .toolbar-break { flex-basis: 100%; height: 0; }
+    button {
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid #bbb;
+      background: #fff;
+      border-radius: 6px;
+      touch-action: manipulation;
+      min-height: 44px;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button:active { background: #eee; }
+    canvas {
+      flex: 1;
+      display: block;
+      background: #fff;
+      width: 100%;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .ribbon {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 200px;
+      height: 200px;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    .ribbon a {
+      position: absolute;
+      display: block;
+      width: 280px;
+      top: 40px;
+      right: -70px;
+      transform: rotate(45deg);
+      padding: 8px 0;
+      background: #2e7d32;
+      color: #fff;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-decoration: none;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      pointer-events: auto;
+    }
+    .ribbon a .link-text {
+      color: #64b5f6;
+      text-decoration: underline;
+    }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <div id="status">Loading WASM module…</div>
+    <button id="btn-add" disabled>Add boundary component</button>
+    <button id="btn-finish" disabled>Finish multipolygon and draw next</button>
+    <div class="toolbar-break"></div>
+    <button id="btn-undo" disabled>Undo</button>
+    <button id="btn-reset" disabled>Reset</button>
+  </div>
+  <canvas id="canvas" width="900" height="600"></canvas>
+  <div class="ribbon">
+    <a id="verified-ribbon" href="#" target="_blank" rel="noopener">
+      <span class="link-text">Formally verified</span>
+    </a>
+  </div>
+
+  <!--
+    coi-serviceworker registers a service worker that adds COOP/COEP headers
+    to every response, enabling SharedArrayBuffer (required by the -pthread
+    Emscripten build). On the first visit the page reloads once after the
+    SW activates. Lets us host on GitHub Pages, which can't set HTTP headers.
+  -->
+  <script src="coi-serviceworker.min.js"></script>
+  <script src="lean_app.js"></script>
+  <script>
+    "use strict";
+
+    // ── GitHub repo link (derived from current URL) ────────────
+    // GitHub Pages serves project sites at <user>.github.io/<repo>/...
+    // and user/org sites at <user>.github.io/... — derive the repo URL
+    // so this keeps working if the repo is renamed.
+    (function setRibbonHref() {
+      const host = location.hostname;
+      const m = host.match(/^([^.]+)\.github\.io$/);
+      if (!m) return;
+      const user = m[1];
+      const firstSeg = location.pathname.split('/').filter(Boolean)[0];
+      const repo = firstSeg || `${user}.github.io`;
+      document.getElementById('verified-ribbon').href =
+        `https://github.com/${user}/${repo}`;
+    })();
+
+    // ── WASM module ────────────────────────────────────────────
+    let Module = null;
+    let runIntersection = null;
+    let wasmReady = false;
+
+    LeanModule({
+      // Emscripten's default stdin handler is `window.prompt()`. Any
+      // transitive Mathlib initializer that touches stdin would pop up
+      // a JS prompt during page load. Return EOF instead.
+      stdin: () => null,
+      // wrapper.c's `main()` is a no-op; we drive everything through
+      // init_lean + call_run_intersection.
+      noInitialRun: true,
+    }).then(mod => {
+      Module = mod;
+      setStatus("Initializing Lean runtime…");
+      Module.ccall('init_lean', null, [], []);
+      runIntersection = Module.cwrap('call_run_intersection', 'number', ['string']);
+      wasmReady = true;
+      updateStatus();
+    }).catch(err => setStatus("Error loading module: " + err));
+
+    function callLean(input) {
+      const ptr = runIntersection(input);
+      const s = Module.UTF8ToString(ptr);
+      Module._free(ptr);
+      return s;
+    }
+    function setStatus(text) { document.getElementById('status').textContent = text; }
+
+    // ── Rationals {n, d} with d > 0, gcd(|n|, d) = 1 ────────────
+    function gcd(a, b) { while (b) { [a, b] = [b, a % b]; } return a || 1; }
+    function rat(n, d = 1) {
+      if (d < 0) { n = -n; d = -d; }
+      const g = gcd(Math.abs(n), d);
+      return { n: n / g, d: d / g };
+    }
+    function ratStr(r) { return r.d === 1 ? `${r.n}` : `${r.n}/${r.d}`; }
+    function parseRat(s) {
+      const parts = s.split('/');
+      return parts.length === 1
+        ? rat(parseInt(parts[0], 10))
+        : rat(parseInt(parts[0], 10), parseInt(parts[1], 10));
+    }
+    function ratToFloat(r) { return r.n / r.d; }
+    function samePoint(a, b) {
+      return a.x.n === b.x.n && a.x.d === b.x.d
+          && a.y.n === b.y.n && a.y.d === b.y.d;
+    }
+
+    // ── Coordinate model: snap taps to half-units ───────────────
+    const SCALE = 40;
+    const ORIGIN = { x: 50, y: 550 };
+    function pixelToUnit(px, py) {
+      const ux = (px - ORIGIN.x) / SCALE;
+      const uy = (ORIGIN.y - py) / SCALE;
+      return { x: rat(Math.round(ux * 2), 2), y: rat(Math.round(uy * 2), 2) };
+    }
+    function unitToPixel(rx, ry) {
+      return {
+        x: ratToFloat(rx) * SCALE + ORIGIN.x,
+        y: ORIGIN.y - ratToFloat(ry) * SCALE,
+      };
+    }
+
+    // ── State ──────────────────────────────────────────────────
+    // multis[i]: closed boundary components of multipolygon i.
+    // currentBoundary: vertices of the boundary being drawn.
+    // currentIdx: 0 or 1 while drawing; 2 once both multis are closed.
+    // result: intersection boundary components from Lean.
+    let multis = [[], []];
+    let currentBoundary = [];
+    let currentIdx = 0;
+    let result = [];
+    // Snapshot taken when the user presses Reset on a non-empty board; the
+    // very next Undo restores it. Any other action clears it.
+    let preReset = null;
+
+    const COLORS = ["#5fa8d3", "#e6b833"];
+    const RESULT_COLOR = "#2ca02c";
+    const DOT_R = 4;
+
+    // ── Canvas drawing ──────────────────────────────────────────
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    function cssSize() {
+      const r = canvas.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    }
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const r = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(r.width * dpr);
+      canvas.height = Math.floor(r.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redraw();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function drawGrid() {
+      const { w, h } = cssSize();
+      ctx.clearRect(0, 0, w, h);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#eee';
+      const stepsX = Math.ceil(w / SCALE) + 1;
+      const stepsY = Math.ceil(h / SCALE) + 1;
+      for (let i = -1; i < stepsX; i++) {
+        const x = ORIGIN.x + i * SCALE;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      }
+      for (let i = -1; i < stepsY; i++) {
+        const y = ORIGIN.y - i * SCALE;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
+      ctx.strokeStyle = '#bbb';
+      ctx.beginPath(); ctx.moveTo(0, ORIGIN.y); ctx.lineTo(w, ORIGIN.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ORIGIN.x, 0); ctx.lineTo(ORIGIN.x, h); ctx.stroke();
+    }
+
+    function drawBoundary(boundary, color, closed, width) {
+      if (boundary.length === 0) return;
+      const pts = boundary.map(p => unitToPixel(p.x, p.y));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      if (closed) ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      for (const p of pts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, DOT_R, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    function redraw() {
+      drawGrid();
+      for (let i = 0; i < 2; i++) {
+        for (const b of multis[i]) drawBoundary(b, COLORS[i], true, 2);
+      }
+      if (currentIdx < 2 && currentBoundary.length > 0) {
+        drawBoundary(currentBoundary, COLORS[currentIdx], false, 2);
+      }
+      for (const b of result) drawBoundary(b, RESULT_COLOR, true, 3);
+    }
+
+    function updateStatus() {
+      const secondEmpty =
+        currentIdx === 1 && currentBoundary.length === 0 && multis[1].length === 0;
+      document.getElementById('btn-finish').textContent =
+        currentIdx === 0 || secondEmpty
+          ? "Finish multipolygon and draw next"
+          : "Finish multipolygon and intersect";
+      const addTarget =
+        currentBoundary.length === 0 && currentIdx > 0 ? currentIdx - 1 : currentIdx;
+      document.getElementById('btn-add').textContent =
+        addTarget === 0
+          ? "Add new boundary to first multipolygon"
+          : "Add new boundary to second multipolygon";
+      if (currentIdx === 2) {
+        setStatus(`Intersection: ${result.length} boundary component${result.length === 1 ? '' : 's'}.`);
+      } else {
+        const who = ["first", "second"][currentIdx];
+        setStatus(`Draw ${who} multipolygon: Tap canvas to add a vertex; tap the first vertex to close. Restriction: Any pair of segments from the two multipolygons can overlap/intersect at most in one point.`);
+      }
+      updateButtons();
+    }
+
+    // Each button is enabled iff its handler would actually do something.
+    // Exception: Finish stays enabled at the start of the second multipolygon
+    // so users who think they're still on the first aren't confused.
+    function updateButtons() {
+      const v = currentBoundary.length;
+      const haveComps = multis[currentIdx]?.length > 0;
+      const addOk =
+        (currentIdx < 2 && v >= 2) ||
+        (v === 0 && currentIdx > 0);
+      const finishOk =
+        currentIdx < 2 && v !== 1 &&
+        !(currentIdx === 0 && v === 0 && !haveComps);
+      const undoOk =
+        preReset !== null || currentIdx > 0 || v > 0 || haveComps;
+      const resetOk =
+        currentIdx > 0 || v > 0 ||
+        multis[0].length > 0 || multis[1].length > 0 || result.length > 0;
+      const set = (id, ok) =>
+        document.getElementById(id).disabled = !(wasmReady && ok);
+      set('btn-add', addOk);
+      set('btn-finish', finishOk);
+      set('btn-undo', undoOk);
+      set('btn-reset', resetOk);
+    }
+
+    // ── Tap handling ────────────────────────────────────────────
+    function addPoint(clientX, clientY) {
+      if (currentIdx >= 2) return;
+      preReset = null;
+      const rect = canvas.getBoundingClientRect();
+      const p = pixelToUnit(clientX - rect.left, clientY - rect.top);
+      // Tap on first vertex closes the boundary and ends this multipolygon.
+      if (currentBoundary.length >= 2 && samePoint(currentBoundary[0], p)) {
+        closeMulti();
+        return;
+      }
+      // Ignore duplicate of last vertex.
+      if (currentBoundary.length > 0 && samePoint(currentBoundary[currentBoundary.length - 1], p)) return;
+      currentBoundary.push(p);
+      redraw();
+      updateStatus();
+    }
+
+    // Distinguish tap from pan/scroll: commit on pointerup only if movement < 5 px.
+    let downAt = null;
+    canvas.addEventListener('pointerdown', e => { downAt = { x: e.clientX, y: e.clientY }; });
+    canvas.addEventListener('pointerup', e => {
+      if (!downAt) return;
+      const dx = e.clientX - downAt.x, dy = e.clientY - downAt.y;
+      downAt = null;
+      if (Math.hypot(dx, dy) > 5) return;
+      addPoint(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('pointercancel', () => { downAt = null; });
+
+    // ── Core transitions ────────────────────────────────────────
+    function closeMulti() {
+      if (currentBoundary.length > 0) {
+        multis[currentIdx].push(currentBoundary);
+        currentBoundary = [];
+      }
+      currentIdx++;
+      if (currentIdx === 2) runIntersect();
+      redraw();
+      updateStatus();
+    }
+
+    function runIntersect() {
+      const parsed = parseOutput(callLean(serializeInput(multis[0], multis[1])));
+      if (parsed === null) {
+        result = [];
+        alert(
+          "Lean precondition check failed:\nAny pair of segments from the two multipolygons can overlap/intersect at most in one point, each boundary component needs ≥ 2 vertices, every segment must have non-zero length."
+        );
+        // Stay in "drawing second multipolygon" mode so the user can fix it.
+        currentIdx = 1;
+      } else {
+        result = parsed;
+      }
+    }
+
+    function serializeInput(m1, m2) {
+      const lines = [];
+      for (const m of [m1, m2]) {
+        lines.push(String(m.length));
+        for (const b of m) {
+          lines.push(String(b.length));
+          for (const p of b) lines.push(`${ratStr(p.x)} ${ratStr(p.y)}`);
+        }
+      }
+      return lines.join('\n') + '\n';
+    }
+    function parseOutput(out) {
+      const lines = out.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+      if (lines.length === 0 || lines[0] !== 'ok') return null;
+      let idx = 1;
+      const k = parseInt(lines[idx++], 10);
+      const r = [];
+      for (let p = 0; p < k; p++) {
+        const n = parseInt(lines[idx++], 10);
+        const b = [];
+        for (let v = 0; v < n; v++) {
+          const [xs, ys] = lines[idx++].split(/\s+/);
+          b.push({ x: parseRat(xs), y: parseRat(ys) });
+        }
+        r.push(b);
+      }
+      return r;
+    }
+
+    // ── Buttons ─────────────────────────────────────────────────
+    document.getElementById('btn-add').addEventListener('click', () => {
+      preReset = null;
+      if (currentIdx < 2 && currentBoundary.length >= 2) {
+        // Finalize the in-progress boundary; stay in the same multipolygon.
+        multis[currentIdx].push(currentBoundary);
+        currentBoundary = [];
+      } else if (currentBoundary.length === 0 && currentIdx > 0) {
+        // Step back to the just-finished polygon to add another boundary to it.
+        // If we were showing an intersection, this implicitly undoes it.
+        currentIdx--;
+        result = [];
+      } else {
+        return;
+      }
+      redraw();
+      updateStatus();
+    });
+
+    document.getElementById('btn-finish').addEventListener('click', () => {
+      if (currentIdx >= 2) return;
+      if (currentBoundary.length === 1) return;
+      if (currentBoundary.length === 0 && multis[currentIdx].length === 0) return;
+      preReset = null;
+      closeMulti();
+    });
+
+    document.getElementById('btn-undo').addEventListener('click', () => {
+      if (preReset) {
+        ({ multis, currentBoundary, currentIdx, result } = preReset);
+        preReset = null;
+        redraw();
+        updateStatus();
+        return;
+      }
+      if (currentIdx === 2) {
+        result = [];
+        currentIdx = 1;
+        currentBoundary = multis[1].pop() || [];
+      } else if (currentBoundary.length > 0) {
+        currentBoundary.pop();
+      } else if (multis[currentIdx].length > 0) {
+        currentBoundary = multis[currentIdx].pop();
+      } else if (currentIdx > 0) {
+        currentIdx--;
+        currentBoundary = multis[currentIdx].pop() || [];
+      }
+      redraw();
+      updateStatus();
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      if (multis[0].length === 0 && multis[1].length === 0
+          && currentBoundary.length === 0 && currentIdx === 0 && result.length === 0) {
+        return;
+      }
+      preReset = { multis, currentBoundary, currentIdx, result };
+      multis = [[], []];
+      currentBoundary = [];
+      currentIdx = 0;
+      result = [];
+      redraw();
+      updateStatus();
+    });
+
+    resizeCanvas();
+  </script>
+</body>
+</html>
