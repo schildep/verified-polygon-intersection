@@ -4491,7 +4491,7 @@ private lemma intersectionParity_eq_of_originSegmentAvoidsMultipolygonSegments
   exact h
 
 /-- Main lemma — equivalence of the boolean test and `interior`. -/
-private theorem pointInsideMultipolygonBool_iff (p : Vector2D) (m : Multipolygon)
+theorem pointInsideMultipolygonBool_iff (p : Vector2D) (m : Multipolygon)
     (h_len : ∀ poly ∈ m.polygons, poly.vertices.length ≥ 2)
     (h_nondeg : ∀ seg ∈ m.segments, seg.p1 ≠ seg.p2) :
     pointInsideMultipolygonBool p m = true ↔ p ∈ m.interior := by
@@ -5339,6 +5339,179 @@ private theorem refinedSegments_perm_flatMap_iterativeSplit
   exact refinedSeg_perm_iterativeSplit_selfWrt m1 m2 h1_len h2_len h1_nondeg h2_nondeg
     h_fin12 s h_s
 
+/-! ### Coverage of a parent segment by its refinement sub-segments
+
+To bridge `refinedSegments'` with `arr`, we need that each parent segment `s` of
+`G1` is *covered* by sub-segments of `graphRefinementSelf G1` that lie on the same
+line as `s` (i.e. are subsets of `s.toSet`). This lets us exhibit a transversal
+crossing point as a `breakpointsSet`-element of the first kind. -/
+
+/-- Coverage at the `replaceSegment` level: replacing `seg` by two halves
+    `seg1, seg2` (with `seg1.toSet ∪ seg2.toSet = seg.toSet` and both
+    `⊆ seg.toSet`) preserves the property that every point of a fixed parent
+    `s.toSet` is contained in some list segment that is `⊆ s.toSet`. -/
+private theorem replaceSegment_segCover
+    (segs : List LineSegment) (seg seg1 seg2 : LineSegment) (s : LineSegment)
+    (h_split : seg1.toSet ∪ seg2.toSet = seg.toSet)
+    (h_sub1 : seg1.toSet ⊆ seg.toSet) (h_sub2 : seg2.toSet ⊆ seg.toSet)
+    (h_cover : ∀ p ∈ s.toSet, ∃ σ ∈ segs, p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet) :
+    ∀ p ∈ s.toSet, ∃ σ ∈ replaceSegment segs seg seg1 seg2,
+      p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet := by
+  intro p hp
+  obtain ⟨σ, hσ_mem, hp_σ, hσ_sub⟩ := h_cover p hp
+  by_cases h_eq : σ = seg
+  · -- σ = seg, so seg ⊆ s; p ∈ seg = seg1 ∪ seg2.
+    subst h_eq
+    have hp_union : p ∈ seg1.toSet ∪ seg2.toSet := h_split ▸ hp_σ
+    rcases hp_union with hp1 | hp2
+    · exact ⟨seg1, seg1_mem_replaceSegment segs σ seg1 seg2 hσ_mem, hp1,
+        h_sub1.trans hσ_sub⟩
+    · exact ⟨seg2, seg2_mem_replaceSegment segs σ seg1 seg2 hσ_mem, hp2,
+        h_sub2.trans hσ_sub⟩
+  · exact ⟨σ, replaceSegment_of_mem_ne segs seg seg1 seg2 σ hσ_mem h_eq, hp_σ, hσ_sub⟩
+
+/-- Coverage is preserved by a single `graphRefinement` step. -/
+private theorem graphRefinement_segCover
+    (G : EvenGraph) (seg0 : LineSegment) (pt : Vector2D)
+    (h_seg0 : seg0 ∈ G.segments) (h_pt : pt ∈ seg0.toSet) (s : LineSegment)
+    (h_cover : ∀ p ∈ s.toSet, ∃ σ ∈ G.segments, p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet) :
+    ∀ p ∈ s.toSet, ∃ σ ∈ (EvenGraphRefinementProofs.graphRefinement G seg0 pt h_seg0 h_pt).segments,
+      p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet := by
+  unfold EvenGraphRefinementProofs.graphRefinement
+  by_cases h : pt = seg0.p1 ∨ pt = seg0.p2
+  · rw [dif_pos h]; exact h_cover
+  · rw [dif_neg h]
+    show ∀ p ∈ s.toSet,
+        ∃ σ ∈ EvenGraphRefinementProofs.replaceSegment G.segments seg0
+          ⟨seg0.p1, pt⟩ ⟨pt, seg0.p2⟩,
+        p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet
+    apply replaceSegment_segCover G.segments seg0 ⟨seg0.p1, pt⟩ ⟨pt, seg0.p2⟩ s
+    · -- seg1 ∪ seg2 = seg0
+      show (LineSegment.mk seg0.p1 pt).toSet ∪ (LineSegment.mk pt seg0.p2).toSet = seg0.toSet
+      exact segment_split seg0.p1 seg0.p2 pt h_pt
+    · exact subseg_p1_subset seg0 pt h_pt
+    · exact subseg_p2_subset seg0 pt h_pt
+    · exact h_cover
+
+/-- Coverage is preserved by `refineAllPtBounded n`. -/
+private theorem refineAllPtBounded_segCover
+    (n : ℕ) (G : EvenGraph) (pt : Vector2D) (s : LineSegment)
+    (h_cover : ∀ p ∈ s.toSet, ∃ σ ∈ G.segments, p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet) :
+    ∀ p ∈ s.toSet, ∃ σ ∈ (EvenGraphRefinementProofs.refineAllPtBounded n G pt).segments,
+      p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet := by
+  induction n generalizing G with
+  | zero => simp only [EvenGraphRefinementProofs.refineAllPtBounded]; exact h_cover
+  | succ n ih =>
+    simp only [EvenGraphRefinementProofs.refineAllPtBounded]
+    split
+    · exact h_cover
+    · rename_i seg0 h_find
+      have h_seg0 : seg0 ∈ G.segments := List.mem_of_find?_eq_some h_find
+      have h_pred := List.find?_some h_find
+      have h_pt : pt ∈ seg0.toSet := by
+        simp only [Bool.and_eq_true, decide_eq_true_eq] at h_pred; exact h_pred.1
+      exact ih (EvenGraphRefinementProofs.graphRefinement G seg0 pt h_seg0 h_pt)
+        (graphRefinement_segCover G seg0 pt h_seg0 h_pt s h_cover)
+
+/-- Coverage is preserved by `refineAllPt`. -/
+private theorem refineAllPt_segCover
+    (G : EvenGraph) (pt : Vector2D) (s : LineSegment)
+    (h_cover : ∀ p ∈ s.toSet, ∃ σ ∈ G.segments, p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet) :
+    ∀ p ∈ s.toSet, ∃ σ ∈ (refineAllPt G pt).segments,
+      p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet :=
+  refineAllPtBounded_segCover _ G pt s h_cover
+
+/-- Coverage is preserved by `refineGraphWithPoints`. -/
+private theorem refineGraphWithPoints_segCover :
+    ∀ (G : EvenGraph) (pts : List Vector2D)
+      (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet) (s : LineSegment),
+      (∀ p ∈ s.toSet, ∃ σ ∈ G.segments, p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet) →
+      ∀ p ∈ s.toSet, ∃ σ ∈ (refineGraphWithPoints G pts h_all).segments,
+        p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet
+  | G, [], _, s, h_cover => h_cover
+  | G, pt :: rest, h_all, s, h_cover => by
+      simp only [refineGraphWithPoints]
+      apply refineGraphWithPoints_segCover (refineAllPt G pt) rest _ s
+      exact refineAllPt_segCover G pt s h_cover
+
+/-- **Parent coverage for `graphRefinementSelf`.** Every point of a parent segment
+    `s ∈ G.segments` lies on some `graphRefinementSelf G`-segment that is a subset of
+    `s.toSet`. -/
+private theorem graphRefinementSelf_segCover
+    (G : EvenGraph) (s : LineSegment) (h_s : s ∈ G.segments) (p : Vector2D)
+    (hp : p ∈ s.toSet) :
+    ∃ σ ∈ (EvenGraphRefinementProofs.graphRefinementSelf G).segments,
+      p ∈ σ.toSet ∧ σ.toSet ⊆ s.toSet := by
+  unfold EvenGraphRefinementProofs.graphRefinementSelf
+  apply refineGraphWithPoints_segCover G _ _ s _ p hp
+  intro q hq
+  exact ⟨s, h_s, hq, le_refl _⟩
+
+/-! ### Transversal crossings vs. `segSegIntersect`
+
+Bridge between the determinant-based `segSegIntersect` and the geometric
+`SameLine`/`breakpointsSet` notions from `EvenGraphIntersectionGenProofs`. -/
+
+/-- If two segments are parallel (`D = 0`), `s1` is non-degenerate, and they share
+    a point `p`, then they lie on the same line. -/
+private theorem sameLine_of_D_zero_of_shared
+    (s1 s2 : LineSegment) (h_ne1 : s1.p1 ≠ s1.p2)
+    (h_D : (s1.p2.x - s1.p1.x) * (s2.p2.y - s2.p1.y) -
+           (s1.p2.y - s1.p1.y) * (s2.p2.x - s2.p1.x) = 0)
+    (p : Vector2D) (hp1 : p ∈ s1.toSet) (hp2 : p ∈ s2.toSet) :
+    EvenGraphIntersectionGenProofs.SameLine s1 s2 := by
+  -- p lies on lineOf s1.
+  have hp_line : p ∈ EvenGraphIntersectionGenProofs.lineOf s1 :=
+    EvenGraphIntersectionGenProofs.toSet_subset_lineOf s1 hp1
+  obtain ⟨t, _, _, hpx, hpy⟩ := hp2
+  -- direction of s1 is nonzero.
+  have hdir1 : (s1.p2.x - s1.p1.x, s1.p2.y - s1.p1.y) ≠ (0, 0) := by
+    intro h
+    apply h_ne1
+    have hx : s1.p2.x - s1.p1.x = 0 := congrArg Prod.fst h
+    have hy : s1.p2.y - s1.p1.y = 0 := congrArg Prod.snd h
+    exact (Vector2D.ext (by linarith) (by linarith)).symm
+  simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq] at hp_line
+  -- Clean linear relations between the coordinates.
+  -- s2.p1 - s1.p1 = (p - s1.p1) - t * (s2.p2 - s2.p1).
+  have hsx1 : s2.p1.x - s1.p1.x =
+      (p.x - s1.p1.x) - t * (s2.p2.x - s2.p1.x) := by rw [hpx]; ring
+  have hsy1 : s2.p1.y - s1.p1.y =
+      (p.y - s1.p1.y) - t * (s2.p2.y - s2.p1.y) := by rw [hpy]; ring
+  -- s2.p2 - s1.p1 = (p - s1.p1) + (1 - t) * (s2.p2 - s2.p1).
+  have hsx2 : s2.p2.x - s1.p1.x =
+      (p.x - s1.p1.x) + (1 - t) * (s2.p2.x - s2.p1.x) := by rw [hpx]; ring
+  have hsy2 : s2.p2.y - s1.p1.y =
+      (p.y - s1.p1.y) + (1 - t) * (s2.p2.y - s2.p1.y) := by rw [hpy]; ring
+  -- both endpoints of s2 are on lineOf s1.
+  constructor
+  · show (s2.p1.x - s1.p1.x) * (s1.p2.y - s1.p1.y) =
+        (s2.p1.y - s1.p1.y) * (s1.p2.x - s1.p1.x)
+    rw [hsx1, hsy1]
+    linear_combination hp_line + t * h_D
+  · show (s2.p2.x - s1.p1.x) * (s1.p2.y - s1.p1.y) =
+        (s2.p2.y - s1.p1.y) * (s1.p2.x - s1.p1.x)
+    rw [hsx2, hsy2]
+    linear_combination hp_line - (1 - t) * h_D
+
+/-- If `s1` is non-degenerate, `s1` and `s2` are **not** on the same line, and they
+    share a point `p`, then `segSegIntersect s1 s2 = some p`. -/
+private theorem segSegIntersect_of_not_sameLine
+    (s1 s2 : LineSegment) (h_ne1 : s1.p1 ≠ s1.p2)
+    (h_not : ¬ EvenGraphIntersectionGenProofs.SameLine s1 s2)
+    (p : Vector2D) (hp1 : p ∈ s1.toSet) (hp2 : p ∈ s2.toSet) :
+    segSegIntersect s1 s2 = some p := by
+  rcases segSegIntersect_correct s1 s2 with ⟨pt, hpt_eq, hpt1, hpt2⟩ | hnone
+  · -- pt and p both in the (subsingleton) intersection ⇒ pt = p.
+    have h_sub := EvenGraphIntersectionGenProofs.inter_subsingleton_of_not_sameLine
+      s1 s2 h_ne1 h_not
+    have h_pt_eq : pt = p := h_sub ⟨hpt1, hpt2⟩ ⟨hp1, hp2⟩
+    rw [hpt_eq, h_pt_eq]
+  · -- none ⇒ D = 0 ⇒ SameLine, contradicting h_not.
+    exfalso
+    have h_D := segSegIntersect_none_implies_D_zero s1 s2 p hp1 hp2 hnone
+    exact h_not (sameLine_of_D_zero_of_shared s1 s2 h_ne1 h_D p hp1 hp2)
+
 /-- Helper: `splitSegmentAtPoints` produces non-degenerate sub-segments
     (consecutive elements of a deduped list are distinct). -/
 private theorem splitSegmentAtPoints_nondeg
@@ -5419,6 +5592,523 @@ private theorem splitSegmentAtPoints_nondeg
   have h_ne_idx : n ≠ n + 1 := by omega
   have := (List.Nodup.getElem_inj_iff hNodup).mp h_dup
   exact h_ne_idx this
+
+/-! ### Bridge `refinedSegments'` to `arr` (finiteness-free) -/
+
+/-- If a **non-degenerate** segment `σ` has both endpoints on `lineOf s`, then every point
+    of `lineOf σ` is on `lineOf s`. (Collinearity transport.) -/
+private theorem sameLine_aux_point
+    (s σ : LineSegment) (q : Vector2D) (hσ_nd : σ.p1 ≠ σ.p2)
+    (hσ1 : σ.p1 ∈ EvenGraphIntersectionGenProofs.lineOf s)
+    (hσ2 : σ.p2 ∈ EvenGraphIntersectionGenProofs.lineOf s)
+    (hq : q ∈ EvenGraphIntersectionGenProofs.lineOf σ) :
+    q ∈ EvenGraphIntersectionGenProofs.lineOf s := by
+  simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq] at hσ1 hσ2 hq ⊢
+  -- σ direction nonzero.
+  have hdσ : σ.p2.x - σ.p1.x ≠ 0 ∨ σ.p2.y - σ.p1.y ≠ 0 := by
+    by_contra h
+    push_neg at h
+    exact hσ_nd (Vector2D.ext (by linarith [h.1]) (by linarith [h.2])).symm
+  -- q - σ.p1 ∥ (σ direction); σ.p1, σ.p2 ∥ relation on lineOf s; transport.
+  -- Use parallel_trans_of_nonzero with d = σ direction.
+  -- (σ.p2 - σ.p1) ∥ (s direction): from hσ1, hσ2.
+  -- (q - σ.p1) ∥ (σ.p2 - σ.p1): from hq.
+  -- ⇒ (q - σ.p1) ∥ (s direction); combined with σ.p1 on lineOf s ⇒ q on lineOf s.
+  have hpar_dirσ_dirs : (σ.p2.x - σ.p1.x) * (s.p2.y - s.p1.y) =
+      (σ.p2.y - σ.p1.y) * (s.p2.x - s.p1.x) := by linarith [hσ1, hσ2]
+  have hpar_q_dirσ : (q.x - σ.p1.x) * (σ.p2.y - σ.p1.y) =
+      (q.y - σ.p1.y) * (σ.p2.x - σ.p1.x) := by linarith [hq]
+  -- (q - σ.p1) ∥ (s direction).
+  have hd_ne : (σ.p2.x - σ.p1.x, σ.p2.y - σ.p1.y) ≠ (0, 0) := by
+    intro h
+    rcases hdσ with hx | hy
+    · exact hx (congrArg Prod.fst h)
+    · exact hy (congrArg Prod.snd h)
+  have hpar_q_dirs : (q.x - σ.p1.x) * (s.p2.y - s.p1.y) =
+      (q.y - σ.p1.y) * (s.p2.x - s.p1.x) := by
+    have := EvenGraphIntersectionGenProofs.parallel_trans_of_nonzero
+      (q.x - σ.p1.x) (q.y - σ.p1.y) (s.p2.x - s.p1.x) (s.p2.y - s.p1.y)
+      (σ.p2.x - σ.p1.x) (σ.p2.y - σ.p1.y) hd_ne
+      (by linarith [hpar_q_dirσ]) (by linarith [hpar_dirσ_dirs])
+    linarith [this]
+  -- q ∈ lineOf s : (q - s.p1) ∥ (s direction). σ.p1 ∈ lineOf s + (q - σ.p1) ∥ dir.
+  linarith [hσ1, hpar_q_dirs]
+
+/-- If both endpoints of `τ` lie on `seg2`, then both endpoints of `seg2` lie on `lineOf τ`.
+    (Both `seg2` endpoints and both `τ` endpoints are multiples of `seg2`'s direction, hence
+    collinear.) -/
+private theorem sameLine_seg2p1_mem_lineOf
+    (τ seg2 : LineSegment) (hτ1_seg2 : τ.p1 ∈ seg2.toSet) (hτ2_seg2 : τ.p2 ∈ seg2.toSet)
+    (_h_nd2 : seg2.p1 ≠ seg2.p2) :
+    seg2.p1 ∈ EvenGraphIntersectionGenProofs.lineOf τ ∧
+    seg2.p2 ∈ EvenGraphIntersectionGenProofs.lineOf τ := by
+  obtain ⟨a, _, _, hax, hay⟩ := hτ1_seg2
+  obtain ⟨b, _, _, hbx, hby⟩ := hτ2_seg2
+  -- τ.p1 = (1-a)seg2.p1 + a seg2.p2, τ.p2 = (1-b)seg2.p1 + b seg2.p2.
+  constructor
+  · simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq]
+    show (seg2.p1.x - τ.p1.x) * (τ.p2.y - τ.p1.y) =
+      (seg2.p1.y - τ.p1.y) * (τ.p2.x - τ.p1.x)
+    rw [hax, hay, hbx, hby]; ring
+  · simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq]
+    show (seg2.p2.x - τ.p1.x) * (τ.p2.y - τ.p1.y) =
+      (seg2.p2.y - τ.p1.y) * (τ.p2.x - τ.p1.x)
+    rw [hax, hay, hbx, hby]; ring
+
+/-- `SameLine` is symmetric on non-degenerate segments. -/
+private theorem sameLine_symm
+    (s t : LineSegment) (hs_nd : s.p1 ≠ s.p2) (_ht_nd : t.p1 ≠ t.p2)
+    (h : EvenGraphIntersectionGenProofs.SameLine s t) :
+    EvenGraphIntersectionGenProofs.SameLine t s := by
+  obtain ⟨ht1, ht2⟩ := h
+  simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq] at ht1 ht2
+  -- t direction ∥ s direction.
+  have hdir_par : (t.p2.x - t.p1.x) * (s.p2.y - s.p1.y) =
+      (t.p2.y - t.p1.y) * (s.p2.x - s.p1.x) := by linarith [ht1, ht2]
+  -- s direction nonzero.
+  have hds_ne : (s.p2.x - s.p1.x, s.p2.y - s.p1.y) ≠ (0, 0) := by
+    intro hh
+    have hx : s.p2.x - s.p1.x = 0 := congrArg Prod.fst hh
+    have hy : s.p2.y - s.p1.y = 0 := congrArg Prod.snd hh
+    exact hs_nd (Vector2D.ext (by linarith) (by linarith)).symm
+  refine ⟨?_, ?_⟩
+  · -- s.p1 ∈ lineOf t : (s.p1 - t.p1) ∥ t-dir. s.p1 - t.p1 = -(t.p1 - s.p1) ∥ s-dir ∥ t-dir.
+    simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq]
+    show (s.p1.x - t.p1.x) * (t.p2.y - t.p1.y) = (s.p1.y - t.p1.y) * (t.p2.x - t.p1.x)
+    -- (t.p1 - s.p1) ∥ s-dir : ht1 gives (t.p1.x - s.p1.x)*s.dy = (t.p1.y - s.p1.y)*s.dx.
+    have := EvenGraphIntersectionGenProofs.parallel_trans_of_nonzero
+      (s.p1.x - t.p1.x) (s.p1.y - t.p1.y) (t.p2.x - t.p1.x) (t.p2.y - t.p1.y)
+      (s.p2.x - s.p1.x) (s.p2.y - s.p1.y) hds_ne
+      (by linarith [ht1]) (by linarith [hdir_par])
+    linarith [this]
+  · simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq]
+    show (s.p2.x - t.p1.x) * (t.p2.y - t.p1.y) = (s.p2.y - t.p1.y) * (t.p2.x - t.p1.x)
+    -- (s.p2 - t.p1) = (s.p2 - s.p1) + (s.p1 - t.p1); both ∥ t-dir.
+    have h1 : (s.p1.x - t.p1.x) * (t.p2.y - t.p1.y) =
+        (s.p1.y - t.p1.y) * (t.p2.x - t.p1.x) := by
+      have := EvenGraphIntersectionGenProofs.parallel_trans_of_nonzero
+        (s.p1.x - t.p1.x) (s.p1.y - t.p1.y) (t.p2.x - t.p1.x) (t.p2.y - t.p1.y)
+        (s.p2.x - s.p1.x) (s.p2.y - s.p1.y) hds_ne
+        (by linarith [ht1]) (by linarith [hdir_par])
+      linarith [this]
+    -- (s.p2 - s.p1) ∥ t-dir from hdir_par.
+    linarith [h1, hdir_par]
+
+/-- If `seg, s, t` are non-degenerate and `seg` is `SameLine` with both `s` and `t`, then
+    `s` and `t` are `SameLine`. -/
+private theorem sameLine_trans_through
+    (seg s t : LineSegment) (hseg_nd : seg.p1 ≠ seg.p2) (hs_nd : s.p1 ≠ s.p2)
+    (h1 : EvenGraphIntersectionGenProofs.SameLine seg s)
+    (h2 : EvenGraphIntersectionGenProofs.SameLine seg t) :
+    EvenGraphIntersectionGenProofs.SameLine s t := by
+  -- s SameLine seg (symm), then transport t's endpoints (on lineOf seg) to lineOf s.
+  obtain ⟨hsegOn_s1, hsegOn_s2⟩ := sameLine_symm seg s hseg_nd hs_nd h1
+  obtain ⟨ht1, ht2⟩ := h2
+  exact ⟨sameLine_aux_point s seg t.p1 hseg_nd hsegOn_s1 hsegOn_s2 ht1,
+         sameLine_aux_point s seg t.p2 hseg_nd hsegOn_s1 hsegOn_s2 ht2⟩
+
+/-- Every refinement point in `refinementPointsForSegment'` lies on `seg`. -/
+private theorem refinementPointsForSegment'_mem_toSet
+    (seg : LineSegment) (m other : Multipolygon) (h_ne : seg.p1 ≠ seg.p2) :
+    ∀ p ∈ refinementPointsForSegment' seg m other, p ∈ seg.toSet := by
+  intro p hp
+  unfold refinementPointsForSegment' at hp
+  simp only [List.mem_append] at hp
+  rcases hp with ((hpco | hpcs) | hpsv) | hpov
+  · -- crossing with other
+    simp only [List.mem_filterMap] at hpco
+    obtain ⟨seg2, _, hint⟩ := hpco
+    rcases segSegIntersect_correct seg seg2 with ⟨pt, hpt_eq, hpt_seg, _⟩ | hnone
+    · rw [hpt_eq, Option.some_inj] at hint; rw [hint] at hpt_seg; exact hpt_seg
+    · rw [hint] at hnone; exact absurd hnone (by simp)
+  · -- crossing with self
+    simp only [List.mem_filterMap] at hpcs
+    obtain ⟨seg2, _, hint⟩ := hpcs
+    rcases segSegIntersect_correct seg seg2 with ⟨pt, hpt_eq, hpt_seg, _⟩ | hnone
+    · rw [hpt_eq, Option.some_inj] at hint; rw [hint] at hpt_seg; exact hpt_seg
+    · rw [hint] at hnone; exact absurd hnone (by simp)
+  · -- self vertex on seg
+    simp only [List.mem_filter, Bool.and_eq_true, decide_eq_true_eq] at hpsv
+    obtain ⟨_, ⟨⟨h_on, _⟩, _⟩⟩ := hpsv
+    exact (pointOnSegmentBool_iff p seg.p1 seg.p2 h_ne).mp h_on
+  · -- other vertex on seg
+    simp only [List.mem_filter, Bool.and_eq_true, decide_eq_true_eq] at hpov
+    obtain ⟨_, ⟨⟨h_on, _⟩, _⟩⟩ := hpov
+    exact (pointOnSegmentBool_iff p seg.p1 seg.p2 h_ne).mp h_on
+
+set_option maxHeartbeats 1600000 in
+/-- Per-segment construction lemma for `arr`: for `seg ∈ m1.segments`, the endpoint
+    multisets of `splitSegmentAtPoints seg (refinementPointsForSegment' seg m1 m2)`
+    match those of `iterativeSplit seg (selfPts ++ breakpts)`, the points used by
+    `arr (m1.toEvenGraph) (m2.toEvenGraph)`. No finiteness hypothesis. -/
+private theorem refinedSeg'_perm_iterativeSplit_arr
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (seg : LineSegment) (h_seg : seg ∈ m1.segments) :
+    let G1 := m1.toEvenGraph h1_len h1_nondeg
+    let G2 := m2.toEvenGraph h2_len h2_nondeg
+    let selfPts := (selfSegmentInteriorVertices_finite G1).toFinset.toList
+    let breakpts := EvenGraphIntersectionGenProofs.breakpointsList
+      (EvenGraphRefinementProofs.graphRefinementSelf G1) G2
+    List.Perm
+      ((splitSegmentAtPoints seg (refinementPointsForSegment' seg m1 m2)).map
+        LineSegment.toEndpointsMultiset)
+      ((iterativeSplit seg (selfPts ++ breakpts)).map LineSegment.toEndpointsMultiset) := by
+  intro G1 G2 selfPts breakpts
+  have h_seg_ne : seg.p1 ≠ seg.p2 := h1_nondeg seg h_seg
+  -- Bridge facts.
+  have hG1_segs : G1.segments = m1.segments :=
+    Multipolygon.toEvenGraph_segments_eq m1 h1_len h1_nondeg
+  have hG2_segs : G2.segments = m2.segments :=
+    Multipolygon.toEvenGraph_segments_eq m2 h2_len h2_nondeg
+  have hG1_vset : G1.toVertexSet = m1.toVertices :=
+    Multipolygon.toEvenGraph_toVertexSet_eq m1 h1_len h1_nondeg
+  have hG2_vset : G2.toVertexSet = m2.toVertices :=
+    Multipolygon.toEvenGraph_toVertexSet_eq m2 h2_len h2_nondeg
+  have hG1_bdy : G1.toBoundarySet = m1.toBoundarySet :=
+    Multipolygon.toEvenGraph_toBoundarySet_eq m1 h1_len h1_nondeg
+  have hRS_bdy : (EvenGraphRefinementProofs.graphRefinementSelf G1).toBoundarySet =
+      G1.toBoundarySet := EvenGraphRefinementProofs.refinementSelf_boundary_eq G1
+  -- Step 1: splitSegmentAtPoints ~ iterativeSplit on refinementPointsForSegment'.
+  have h_refPts_on_seg : ∀ p ∈ refinementPointsForSegment' seg m1 m2, p ∈ seg.toSet :=
+    refinementPointsForSegment'_mem_toSet seg m1 m2 h_seg_ne
+  have h_split_perm_iter :=
+    (iterativeSplit_perm_splitSegmentAtPoints seg h_seg_ne _ h_refPts_on_seg).symm
+  refine h_split_perm_iter.trans ?_
+  -- Step 2: filter both lists to seg.toSet.
+  set L1 := refinementPointsForSegment' seg m1 m2 with hL1_def
+  set L2 := selfPts ++ breakpts with hL2_def
+  set L1' := L1.filter (fun q => decide (q ∈ seg.toSet)) with hL1'_def
+  set L2' := L2.filter (fun q => decide (q ∈ seg.toSet)) with hL2'_def
+  rw [iterativeSplit_filter_on_seg seg L1, iterativeSplit_filter_on_seg seg L2]
+  have h_L1'_on_seg : ∀ p ∈ L1', p ∈ seg.toSet := by
+    intro p hp; rw [hL1'_def, List.mem_filter, decide_eq_true_eq] at hp; exact hp.2
+  have h_L2'_on_seg : ∀ p ∈ L2', p ∈ seg.toSet := by
+    intro p hp; rw [hL2'_def, List.mem_filter, decide_eq_true_eq] at hp; exact hp.2
+  -- Step 3: convert both to splitSegmentAtPoints.
+  refine (iterativeSplit_perm_splitSegmentAtPoints seg h_seg_ne L1' h_L1'_on_seg).trans ?_
+  refine List.Perm.trans ?_
+    (iterativeSplit_perm_splitSegmentAtPoints seg h_seg_ne L2' h_L2'_on_seg).symm
+  -- Step 4: strict-interior set equality.
+  apply splitSegmentAtPoints_perm_of_strict_interior_set_eq seg h_seg_ne L1' L2'
+    h_L1'_on_seg h_L2'_on_seg
+  intro p
+  constructor
+  · -- refinementPointsForSegment' ⇒ selfPts ++ breakpts
+    rintro ⟨hp_L1', hp_ne1, hp_ne2⟩
+    rw [hL1'_def, List.mem_filter, decide_eq_true_eq] at hp_L1'
+    obtain ⟨hp_L1, hp_seg⟩ := hp_L1'
+    refine ⟨?_, hp_ne1, hp_ne2⟩
+    rw [hL2'_def, List.mem_filter, decide_eq_true_eq]
+    refine ⟨?_, hp_seg⟩
+    -- analyze which sublist contains p.
+    rw [hL1_def] at hp_L1
+    unfold refinementPointsForSegment' at hp_L1
+    simp only [List.mem_append] at hp_L1
+    rw [hL2_def, List.mem_append]
+    rcases hp_L1 with ((hpco | hpcs) | hpsv) | hpov
+    · -- crossing with m2-segment: breakpoint (first kind).
+      right
+      simp only [List.mem_filterMap] at hpco
+      obtain ⟨seg2, h_seg2_mem, h_int⟩ := hpco
+      have h_p_seg2 : p ∈ seg2.toSet := by
+        rcases segSegIntersect_correct seg seg2 with ⟨pt, hpt_eq, _, hpt2⟩ | hnone
+        · rw [hpt_eq, Option.some_inj] at h_int; rw [h_int] at hpt2; exact hpt2
+        · rw [hnone] at h_int; exact absurd h_int (by simp)
+      have h_notSL : ¬ EvenGraphIntersectionGenProofs.SameLine seg seg2 := by
+        intro hSL
+        rw [segSegIntersect_some_iff] at h_int
+        obtain ⟨hD_ne, _⟩ := h_int
+        obtain ⟨h1, h2⟩ := hSL
+        simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq] at h1 h2
+        apply hD_ne
+        show (seg.p2.x - seg.p1.x) * (seg2.p2.y - seg2.p1.y) -
+          (seg.p2.y - seg.p1.y) * (seg2.p2.x - seg2.p1.x) = 0
+        linear_combination h1 - h2
+      -- get a graphRefinementSelf-subsegment of seg through p, collinear with seg.
+      obtain ⟨σ, hσ_mem, hp_σ, hσ_sub⟩ :=
+        graphRefinementSelf_segCover G1 seg (by rw [hG1_segs]; exact h_seg) p hp_seg
+      -- ¬ SameLine σ seg2, since σ ⊆ seg and ¬ SameLine seg seg2.
+      have hσ_notSL : ¬ EvenGraphIntersectionGenProofs.SameLine σ seg2 := by
+        intro hSL
+        apply h_notSL
+        -- σ.toSet ⊆ seg.toSet ⊆ lineOf seg; σ nondeg gives two distinct line points.
+        have hσ_nd : σ.p1 ≠ σ.p2 :=
+          (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate σ hσ_mem
+        -- seg2 endpoints ∈ lineOf σ; σ endpoints ∈ lineOf seg. Need seg2 endpoints ∈ lineOf seg.
+        have hσ1_seg : σ.p1 ∈ seg.toSet := hσ_sub (EvenGraphIntersectionGenProofs.seg_p1_mem σ)
+        have hσ2_seg : σ.p2 ∈ seg.toSet := hσ_sub (EvenGraphIntersectionGenProofs.seg_p2_mem σ)
+        have hσ1_line : σ.p1 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          EvenGraphIntersectionGenProofs.toSet_subset_lineOf seg hσ1_seg
+        have hσ2_line : σ.p2 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          EvenGraphIntersectionGenProofs.toSet_subset_lineOf seg hσ2_seg
+        obtain ⟨ht1, ht2⟩ := hSL
+        -- seg2.p1 ∈ lineOf σ, σ.p1 σ.p2 ∈ lineOf seg, σ nondeg ⇒ seg2.p1 ∈ lineOf seg.
+        refine ⟨?_, ?_⟩
+        · exact sameLine_aux_point seg σ seg2.p1 hσ_nd hσ1_line hσ2_line ht1
+        · exact sameLine_aux_point seg σ seg2.p2 hσ_nd hσ1_line hσ2_line ht2
+      have h_σnd : σ.p1 ≠ σ.p2 :=
+        (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate σ hσ_mem
+      -- p ∈ breakpts.
+      rw [EvenGraphIntersectionGenProofs.mem_breakpointsList_iff]
+      left
+      refine ⟨σ, hσ_mem, seg2, ?_, hσ_notSL, hp_σ, h_p_seg2⟩
+      -- seg2 ∈ (graphRefinementSelf G1).segments ++ G2.segments  (it's a G2 segment)
+      rw [List.mem_append]; right; rw [hG2_segs]; exact h_seg2_mem
+    · -- crossing with m1-segment: breakpoint (first kind), t is a refined-G1 subseg of seg2.
+      right
+      simp only [List.mem_filterMap] at hpcs
+      obtain ⟨seg2, h_seg2_mem, h_int⟩ := hpcs
+      have h_p_seg2 : p ∈ seg2.toSet := by
+        rcases segSegIntersect_correct seg seg2 with ⟨pt, hpt_eq, _, hpt2⟩ | hnone
+        · rw [hpt_eq, Option.some_inj] at h_int; rw [h_int] at hpt2; exact hpt2
+        · rw [hnone] at h_int; exact absurd h_int (by simp)
+      have h_notSL : ¬ EvenGraphIntersectionGenProofs.SameLine seg seg2 := by
+        intro hSL
+        rw [segSegIntersect_some_iff] at h_int
+        obtain ⟨hD_ne, _⟩ := h_int
+        obtain ⟨h1, h2⟩ := hSL
+        simp only [EvenGraphIntersectionGenProofs.lineOf, Set.mem_setOf_eq] at h1 h2
+        apply hD_ne
+        show (seg.p2.x - seg.p1.x) * (seg2.p2.y - seg2.p1.y) -
+          (seg.p2.y - seg.p1.y) * (seg2.p2.x - seg2.p1.x) = 0
+        linear_combination h1 - h2
+      -- subseg of seg through p (call σ) and subseg of seg2 through p (call τ).
+      obtain ⟨σ, hσ_mem, hp_σ, hσ_sub⟩ :=
+        graphRefinementSelf_segCover G1 seg (by rw [hG1_segs]; exact h_seg) p hp_seg
+      obtain ⟨τ, hτ_mem, hp_τ, hτ_sub⟩ :=
+        graphRefinementSelf_segCover G1 seg2 (by rw [hG1_segs]; exact h_seg2_mem) p h_p_seg2
+      have hσ_nd : σ.p1 ≠ σ.p2 :=
+        (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate σ hσ_mem
+      have hτ_nd : τ.p1 ≠ τ.p2 :=
+        (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate τ hτ_mem
+      -- ¬ SameLine σ τ.
+      have hσ_notSL : ¬ EvenGraphIntersectionGenProofs.SameLine σ τ := by
+        intro hSL
+        apply h_notSL
+        -- σ ⊆ seg, τ ⊆ seg2; SameLine σ τ ⇒ SameLine seg seg2.
+        have hσ1_line : σ.p1 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          EvenGraphIntersectionGenProofs.toSet_subset_lineOf seg
+            (hσ_sub (EvenGraphIntersectionGenProofs.seg_p1_mem σ))
+        have hσ2_line : σ.p2 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          EvenGraphIntersectionGenProofs.toSet_subset_lineOf seg
+            (hσ_sub (EvenGraphIntersectionGenProofs.seg_p2_mem σ))
+        have hτ1_seg2 : τ.p1 ∈ seg2.toSet := hτ_sub (EvenGraphIntersectionGenProofs.seg_p1_mem τ)
+        have hτ2_seg2 : τ.p2 ∈ seg2.toSet := hτ_sub (EvenGraphIntersectionGenProofs.seg_p2_mem τ)
+        obtain ⟨ht1, ht2⟩ := hSL
+        -- τ.p1, τ.p2 ∈ lineOf σ ⊆ lineOf seg (via σ nondeg, σ pts on lineOf seg).
+        have hτ1_line : τ.p1 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          sameLine_aux_point seg σ τ.p1 hσ_nd hσ1_line hσ2_line ht1
+        have hτ2_line : τ.p2 ∈ EvenGraphIntersectionGenProofs.lineOf seg :=
+          sameLine_aux_point seg σ τ.p2 hσ_nd hσ1_line hσ2_line ht2
+        -- seg2.p1, seg2.p2 ∈ lineOf seg via τ nondeg.
+        have hseg2_on_τ := sameLine_seg2p1_mem_lineOf τ seg2 hτ1_seg2 hτ2_seg2
+          (h1_nondeg seg2 h_seg2_mem)
+        refine ⟨?_, ?_⟩
+        · exact sameLine_aux_point seg τ seg2.p1 hτ_nd hτ1_line hτ2_line hseg2_on_τ.1
+        · exact sameLine_aux_point seg τ seg2.p2 hτ_nd hτ1_line hτ2_line hseg2_on_τ.2
+      rw [EvenGraphIntersectionGenProofs.mem_breakpointsList_iff]
+      left
+      exact ⟨σ, hσ_mem, τ, List.mem_append.mpr (Or.inl hτ_mem), hσ_notSL, hp_σ, hp_τ⟩
+    · -- self vertex on seg interior: selfPts.
+      left
+      simp only [List.mem_filter, Bool.and_eq_true, decide_eq_true_eq] at hpsv
+      obtain ⟨hp_av, ⟨⟨_, _⟩, _⟩⟩ := hpsv
+      -- p ∈ m1.allVertices, p strictly interior to seg ∈ m1.segments.
+      have hp_in_self : p ∈ selfSegmentInteriorVertices G1 := by
+        refine ⟨?_, seg, ?_, hp_seg, hp_ne1, hp_ne2⟩
+        · rw [hG1_vset]; exact hp_av
+        · rw [hG1_segs]; exact h_seg
+      show p ∈ (selfSegmentInteriorVertices_finite G1).toFinset.toList
+      rw [Finset.mem_toList]
+      exact (selfSegmentInteriorVertices_finite G1).mem_toFinset.mpr hp_in_self
+    · -- other vertex on seg interior: breakpoint (second kind).
+      right
+      simp only [List.mem_filter, Bool.and_eq_true, decide_eq_true_eq] at hpov
+      obtain ⟨hp_av, ⟨⟨_, _⟩, _⟩⟩ := hpov
+      rw [EvenGraphIntersectionGenProofs.mem_breakpointsList_iff]
+      right
+      constructor
+      · -- p ∈ G2.toVertices (list)
+        show p ∈ (G2.toVertices : List Vector2D)
+        have : p ∈ G2.toVertexSet := by rw [hG2_vset]; exact hp_av
+        exact this
+      · -- p ∈ (graphRefinementSelf G1).toBoundarySet
+        rw [hRS_bdy, hG1_bdy]
+        exact ⟨seg, h_seg, hp_seg⟩
+  · -- selfPts ++ breakpts ⇒ refinementPointsForSegment'
+    rintro ⟨hp_L2', hp_ne1, hp_ne2⟩
+    rw [hL2'_def, List.mem_filter, decide_eq_true_eq] at hp_L2'
+    obtain ⟨hp_L2, hp_seg⟩ := hp_L2'
+    refine ⟨?_, hp_ne1, hp_ne2⟩
+    rw [hL1'_def, List.mem_filter, decide_eq_true_eq]
+    refine ⟨?_, hp_seg⟩
+    rw [hL1_def]
+    unfold refinementPointsForSegment'
+    rw [hL2_def, List.mem_append] at hp_L2
+    rcases hp_L2 with hp_self | hp_break
+    · -- p ∈ selfPts ⇒ p ∈ m1.allVertices on seg interior ⇒ selfVerts.
+      have hp_self_set : p ∈ selfSegmentInteriorVertices G1 :=
+        (selfSegmentInteriorVertices_finite G1).mem_toFinset.mp (Finset.mem_toList.mp hp_self)
+      obtain ⟨hp_vset, _⟩ := hp_self_set
+      rw [hG1_vset] at hp_vset
+      have hp_av : p ∈ m1.allVertices := hp_vset
+      have hp_filt : p ∈ m1.allVertices.filter (fun v =>
+          pointOnSegmentBool v seg.p1 seg.p2 && decide (v ≠ seg.p1) && decide (v ≠ seg.p2)) := by
+        rw [List.mem_filter]
+        refine ⟨hp_av, ?_⟩
+        simp only [Bool.and_eq_true, decide_eq_true_eq, ne_eq]
+        exact ⟨⟨pointOnSegmentBool_of_mem_toSet seg p h_seg_ne hp_seg, hp_ne1⟩, hp_ne2⟩
+      simp only [List.mem_append]
+      left; right
+      exact hp_filt
+    · -- p ∈ breakpts: split into the two breakpointsSet kinds.
+      rw [EvenGraphIntersectionGenProofs.mem_breakpointsList_iff] at hp_break
+      rcases hp_break with ⟨s', hs'_mem, t', ht'_mem, h_notSL, hp_s', hp_t'⟩ | ⟨hp_v2, _⟩
+      · -- first kind: transversal crossing at p of two refined segments through p.
+        -- s', t' ∈ (graphRefinementSelf G1).segments ++ G2.segments; ¬ SameLine s' t';
+        -- p ∈ s' ∩ t'. Since ¬ SameLine s' t', at least one of s', t' is ¬ SameLine seg
+        -- (else both SameLine seg ⇒ SameLine s' t' by transitivity through nondeg seg).
+        have hs'_nd : s'.p1 ≠ s'.p2 :=
+          (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate s' hs'_mem
+        -- Promote s' membership to the appended list.
+        have hs'_mem' : s' ∈ (EvenGraphRefinementProofs.graphRefinementSelf G1).segments ++
+            G2.segments := List.mem_append.mpr (Or.inl hs'_mem)
+        -- t' is in the appended list; nondeg via either part.
+        have ht'_nd : t'.p1 ≠ t'.p2 := by
+          rcases List.mem_append.mp ht'_mem with h | h
+          · exact (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate t' h
+          · exact G2.segments_nondegenerate t' h
+        -- Helper: for a member `u` of the appended list, find an m1/m2-parent ⊇ u.
+        have get_parent : ∀ u, u ∈ (EvenGraphRefinementProofs.graphRefinementSelf G1).segments ++
+              G2.segments →
+            ∃ parent, parent ∈ m1.segments ++ m2.segments ∧ u.toSet ⊆ parent.toSet := by
+          intro u hu
+          rw [List.mem_append] at hu
+          rcases hu with hu_RS | hu_G2
+          · obtain ⟨parent, hpar_mem, hpar_sub⟩ :=
+              EvenGraphIntersectionGenProofs.refineGraphWithPoints_seg_subset G1 _ _ u hu_RS
+            exact ⟨parent, List.mem_append.mpr (Or.inl (by rw [← hG1_segs]; exact hpar_mem)),
+              hpar_sub⟩
+          · exact ⟨u, List.mem_append.mpr (Or.inr (by rw [← hG2_segs]; exact hu_G2)), le_refl _⟩
+        -- The crossing partner `u` (the one not SameLine with seg) with its parent.
+        have h_choice : (¬ EvenGraphIntersectionGenProofs.SameLine seg s' ∧ p ∈ s'.toSet ∧
+              s' ∈ (EvenGraphRefinementProofs.graphRefinementSelf G1).segments ++ G2.segments) ∨
+            (¬ EvenGraphIntersectionGenProofs.SameLine seg t' ∧ p ∈ t'.toSet ∧
+              t' ∈ (EvenGraphRefinementProofs.graphRefinementSelf G1).segments ++ G2.segments) := by
+          by_cases hsl1 : EvenGraphIntersectionGenProofs.SameLine seg s'
+          · by_cases hsl2 : EvenGraphIntersectionGenProofs.SameLine seg t'
+            · exact absurd (sameLine_trans_through seg s' t' h_seg_ne hs'_nd hsl1 hsl2) h_notSL
+            · exact Or.inr ⟨hsl2, hp_t', ht'_mem⟩
+          · exact Or.inl ⟨hsl1, hp_s', hs'_mem'⟩
+        obtain ⟨u, hu_notSL, hp_u, hu_mem⟩ :
+            ∃ u, ¬ EvenGraphIntersectionGenProofs.SameLine seg u ∧ p ∈ u.toSet ∧
+              u ∈ (EvenGraphRefinementProofs.graphRefinementSelf G1).segments ++ G2.segments := by
+          rcases h_choice with ⟨h1, h2, h3⟩ | ⟨h1, h2, h3⟩
+          · exact ⟨s', h1, h2, h3⟩
+          · exact ⟨t', h1, h2, h3⟩
+        obtain ⟨parent, h_parent_mem, h_parent_sub⟩ := get_parent u hu_mem
+        have hp_parent : p ∈ parent.toSet := h_parent_sub hp_u
+        -- ¬ SameLine seg parent: else (parent ⊇ u, u nondeg) ⇒ SameLine seg u.
+        have h_seg_par_notSL : ¬ EvenGraphIntersectionGenProofs.SameLine seg parent := by
+          intro hSL
+          apply hu_notSL
+          -- u ⊆ parent, u nondeg; SameLine seg parent ⇒ SameLine seg u.
+          -- u.p1, u.p2 ∈ parent.toSet ⊆ lineOf parent. parent SameLine seg... use symm.
+          have hpar_nd : parent.p1 ≠ parent.p2 := by
+            rcases List.mem_append.mp h_parent_mem with h | h
+            · exact h1_nondeg parent h
+            · exact h2_nondeg parent h
+          -- seg.p1, seg.p2 ∈ lineOf parent (from SameLine seg parent).
+          obtain ⟨hseg_par1, hseg_par2⟩ := sameLine_symm seg parent h_seg_ne hpar_nd hSL
+          -- u.p1, u.p2 ∈ parent.toSet ⊆ lineOf parent.
+          have hu1_par : u.p1 ∈ EvenGraphIntersectionGenProofs.lineOf parent :=
+            EvenGraphIntersectionGenProofs.toSet_subset_lineOf parent
+              (h_parent_sub (EvenGraphIntersectionGenProofs.seg_p1_mem u))
+          have hu2_par : u.p2 ∈ EvenGraphIntersectionGenProofs.lineOf parent :=
+            EvenGraphIntersectionGenProofs.toSet_subset_lineOf parent
+              (h_parent_sub (EvenGraphIntersectionGenProofs.seg_p2_mem u))
+          -- want SameLine seg u : u.p1, u.p2 ∈ lineOf seg. parent endpoints on lineOf seg
+          -- (SameLine seg parent), parent nondeg, u endpoints on lineOf parent ⇒ on lineOf seg.
+          obtain ⟨hpar_seg1, hpar_seg2⟩ := hSL
+          exact ⟨sameLine_aux_point seg parent u.p1 hpar_nd hpar_seg1 hpar_seg2 hu1_par,
+                 sameLine_aux_point seg parent u.p2 hpar_nd hpar_seg1 hpar_seg2 hu2_par⟩
+        have h_int : segSegIntersect seg parent = some p :=
+          segSegIntersect_of_not_sameLine seg parent h_seg_ne h_seg_par_notSL p hp_seg hp_parent
+        simp only [List.mem_append]
+        rw [List.mem_append] at h_parent_mem
+        rcases h_parent_mem with h_m1 | h_m2
+        · -- parent ∈ m1.segments ⇒ crossingsSelf
+          left; left; right
+          simp only [List.mem_filterMap]
+          exact ⟨parent, h_m1, h_int⟩
+        · -- parent ∈ m2.segments ⇒ crossingsOther
+          left; left; left
+          simp only [List.mem_filterMap]
+          exact ⟨parent, h_m2, h_int⟩
+      · -- second kind: p ∈ G2.toVertices ∧ p ∈ ∂(graphRefinementSelf G1).
+        -- p ∈ m2.allVertices on seg interior ⇒ otherVerts.
+        have hp_av2 : p ∈ m2.allVertices := by
+          have hh : p ∈ G2.toVertexSet := hp_v2
+          rw [hG2_vset] at hh; exact hh
+        have hp_filt : p ∈ m2.allVertices.filter (fun v =>
+            pointOnSegmentBool v seg.p1 seg.p2 && decide (v ≠ seg.p1) && decide (v ≠ seg.p2)) := by
+          rw [List.mem_filter]
+          refine ⟨hp_av2, ?_⟩
+          simp only [Bool.and_eq_true, decide_eq_true_eq, ne_eq]
+          exact ⟨⟨pointOnSegmentBool_of_mem_toSet seg p h_seg_ne hp_seg, hp_ne1⟩, hp_ne2⟩
+        simp only [List.mem_append]
+        right
+        exact hp_filt
+
+/-- **The arrangement-matching refinement equals the arrangement** (finiteness-free):
+    `refinedSegments' m1 m2`, viewed as a multiset of unordered endpoint pairs, is a
+    permutation of the segments of `arr (m1.toEvenGraph) (m2.toEvenGraph)`. -/
+theorem refinedSegments'_perm_arr
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    List.Perm
+      ((MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).map
+        LineSegment.toEndpointsMultiset)
+      ((EvenGraphIntersectionGenProofs.arr (m1.toEvenGraph h1_len h1_nondeg)
+        (m2.toEvenGraph h2_len h2_nondeg)).segments.map LineSegment.toEndpointsMultiset) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1_def
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2_def
+  set selfPts := (EvenGraphRefinementProofs.selfSegmentInteriorVertices_finite G1).toFinset.toList
+    with hselfPts_def
+  set breakpts := EvenGraphIntersectionGenProofs.breakpointsList
+    (EvenGraphRefinementProofs.graphRefinementSelf G1) G2 with hbreakpts_def
+  -- Step A: arr's segments ~ G1.segments.flatMap (iterativeSplit · (selfPts ++ breakpts)).
+  have hA := EvenGraphIntersectionGenProofs.arr_segments_perm G1 G2
+  -- Step B: refinedSegments' = m1.segments.flatMap (splitSegmentAtPoints · (refPts' ·)).
+  have hG1_segs : G1.segments = m1.segments :=
+    Multipolygon.toEvenGraph_segments_eq m1 h1_len h1_nondeg
+  -- The per-segment flatMap perm.
+  have hB : List.Perm
+      ((m1.segments.flatMap (fun s =>
+        splitSegmentAtPoints s (refinementPointsForSegment' s m1 m2))).map
+          LineSegment.toEndpointsMultiset)
+      ((m1.segments.flatMap (fun s =>
+        iterativeSplit s (selfPts ++ breakpts))).map LineSegment.toEndpointsMultiset) := by
+    apply flatMap_perm_of_perm_pointwise
+    intro s h_s
+    exact refinedSeg'_perm_iterativeSplit_arr m1 m2 h1_len h2_len h1_nondeg h2_nondeg s h_s
+  -- Assemble.
+  -- refinedSegments' m1 m2 = m1.segments.flatMap (splitSegmentAtPoints · (refPts' ·)).
+  have h_lhs : (MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2) =
+      m1.segments.flatMap (fun s =>
+        splitSegmentAtPoints s (refinementPointsForSegment' s m1 m2)) := rfl
+  rw [h_lhs]
+  refine hB.trans ?_
+  -- hA : (arr G1 G2).segments.map toEM ~ (G1.segments.flatMap (iterativeSplit · (selfPts++breakpts))).map toEM
+  rw [hG1_segs] at hA
+  exact hA.symm
 
 /-- Half-perm of the construction equivalence: for one of the two halves (the (m1, m2) half),
     show the endpoint-multiset perm. -/
@@ -5598,34 +6288,1282 @@ theorem intersectionGraphSegments_perm_evenGraphIntersection
   · -- Half 2 (m2, m1).
     exact intersectionGraphSegments_half_perm m2 m1 h2_len h1_len h2_nondeg h1_nondeg h_fin21
 
+/-! ### Finiteness-free selection equivalence (one half) -/
+
+/-- Two segments with equal `toEndpointsMultiset` have equal point sets and equal
+    unordered endpoint pairs. -/
+private theorem toEM_eq_imp_toSet_and_pair_eq
+    (σ s : LineSegment) (h : σ.toEndpointsMultiset = s.toEndpointsMultiset) :
+    σ.toSet = s.toSet ∧
+    ({σ.p1, σ.p2} : Set Vector2D) = ({s.p1, s.p2} : Set Vector2D) := by
+  cases σ with
+  | mk a b =>
+  cases s with
+  | mk c d =>
+  simp only [LineSegment.toEndpointsMultiset] at h
+  -- h : ({a, b} : Multiset Vector2D) = {c, d}
+  have hac : a = c ∨ a = d := by
+    have ha : a ∈ ({c, d} : Multiset Vector2D) := by
+      rw [← h]; exact Multiset.mem_cons_self _ _
+    rcases Multiset.mem_cons.mp ha with hc | hd
+    · exact Or.inl hc
+    · exact Or.inr (Multiset.mem_singleton.mp hd)
+  rcases hac with rfl | rfl
+  · -- a = c, then b = d.
+    have hbd : b = d := by
+      have step : Multiset.erase ({a, b} : Multiset Vector2D) a =
+          Multiset.erase ({a, d} : Multiset Vector2D) a := by rw [h]
+      have l1 : ({a, b} : Multiset Vector2D) = a ::ₘ ({b} : Multiset Vector2D) := rfl
+      have l2 : ({a, d} : Multiset Vector2D) = a ::ₘ ({d} : Multiset Vector2D) := rfl
+      rw [l1, l2, Multiset.erase_cons_head, Multiset.erase_cons_head] at step
+      exact Multiset.singleton_inj.mp step
+    subst hbd
+    exact ⟨rfl, rfl⟩
+  · -- a = d. h : {a, b} = {c, a}, swap to {a, c}, so b = c.
+    have h_swap : ({c, a} : Multiset Vector2D) = ({a, c} : Multiset Vector2D) :=
+      Multiset.cons_swap _ _ _
+    rw [h_swap] at h
+    have hbc : b = c := by
+      have step : Multiset.erase ({a, b} : Multiset Vector2D) a =
+          Multiset.erase ({a, c} : Multiset Vector2D) a := by rw [h]
+      have l1 : ({a, b} : Multiset Vector2D) = a ::ₘ ({b} : Multiset Vector2D) := rfl
+      have l2 : ({a, c} : Multiset Vector2D) = a ::ₘ ({c} : Multiset Vector2D) := rfl
+      rw [l1, l2, Multiset.erase_cons_head, Multiset.erase_cons_head] at step
+      exact Multiset.singleton_inj.mp step
+    subst hbc
+    -- Now σ = ⟨a, b⟩, s = ⟨b, a⟩.
+    refine ⟨EvenGraphProofs.lineSegment_toSet_swap a b, ?_⟩
+    show ({a, b} : Set Vector2D) = ({b, a} : Set Vector2D)
+    exact Set.pair_comm a b
+
+/-- A point on the multipolygon boundary is reported as not-inside by
+    `pointInsideMultipolygonBool`. -/
+private theorem pointInsideMultipolygonBool_false_of_mem_boundary
+    (p : Vector2D) (m : Multipolygon)
+    (h_nondeg : ∀ seg ∈ m.segments, seg.p1 ≠ seg.p2)
+    (hp : p ∈ m.toBoundarySet) :
+    pointInsideMultipolygonBool p m = false := by
+  obtain ⟨seg, hseg_mem, hp_seg⟩ := hp
+  have h_onBoundary : m.segments.any
+      (fun s => pointOnSegmentBool p s.p1 s.p2) = true := by
+    rw [List.any_eq_true]
+    exact ⟨seg, hseg_mem,
+      pointOnSegmentBool_of_mem_toSet seg p (h_nondeg seg hseg_mem) hp_seg⟩
+  unfold pointInsideMultipolygonBool
+  simp only [h_onBoundary, if_true]
+
+/-- **Finiteness-free selection equivalence (one half).** The segments selected
+    inside `m2` from the runtime refinement `refinedSegments' m1 m2` agree
+    (up to endpoint-multiset permutation) with the segments selected inside the
+    `m2`-interior from the arrangement `arr G1 G2`. -/
+theorem selectInsideOther_refinedSegments'_perm_selectSegmentsInside_arr
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    List.Perm
+      ((MultipolygonIntersectionAlgorithmImpl.selectInsideOther
+          (MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2) m2).map
+        LineSegment.toEndpointsMultiset)
+      ((_root_.selectSegmentsInside
+          (EvenGraphIntersectionGenProofs.arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments
+          (m2.toEvenGraph h2_len h2_nondeg).interior).map
+        LineSegment.toEndpointsMultiset) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1_def
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2_def
+  -- Construction perm (finiteness-free).
+  have h_top : List.Perm
+      ((MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).map
+        LineSegment.toEndpointsMultiset)
+      ((EvenGraphIntersectionGenProofs.arr G1 G2).segments.map
+        LineSegment.toEndpointsMultiset) :=
+    refinedSegments'_perm_arr m1 m2 h1_len h2_len h1_nondeg h2_nondeg
+  -- Bridge facts.
+  have hG2_bdy : G2.toBoundarySet = m2.toBoundarySet :=
+    Multipolygon.toEvenGraph_toBoundarySet_eq m2 h2_len h2_nondeg
+  have hG2_int : G2.interior = m2.interior :=
+    Multipolygon.toEvenGraph_interior_eq m2 h2_len h2_nondeg
+  -- The two filtering predicates.
+  set p_LHS : LineSegment → Bool :=
+    fun s => pointInsideMultipolygonBool (segmentMidpoint s) m2 with hpLHS_def
+  set p_RHS : LineSegment → Bool :=
+    fun s => decide (segmentOpenInteriorSubset s G2.interior) with hpRHS_def
+  -- p_RHS is swap-invariant.
+  have h_RHS_swap : ∀ a b : Vector2D,
+      p_RHS (LineSegment.mk a b) = p_RHS (LineSegment.mk b a) := by
+    intro a b
+    show decide (segmentOpenInteriorSubset _ _) = decide (segmentOpenInteriorSubset _ _)
+    have h_toSet_eq : (LineSegment.mk a b).toSet = (LineSegment.mk b a).toSet :=
+      EvenGraphProofs.lineSegment_toSet_swap a b
+    have h_iff : segmentOpenInteriorSubset (LineSegment.mk a b) G2.interior ↔
+        segmentOpenInteriorSubset (LineSegment.mk b a) G2.interior := by
+      unfold segmentOpenInteriorSubset
+      constructor
+      · intro h q hq h1 h2
+        have hq' : q ∈ (LineSegment.mk a b).toSet := h_toSet_eq ▸ hq
+        exact h q hq' h2 h1
+      · intro h q hq h1 h2
+        have hq' : q ∈ (LineSegment.mk b a).toSet := h_toSet_eq.symm ▸ hq
+        exact h q hq' h2 h1
+    by_cases h : segmentOpenInteriorSubset (LineSegment.mk a b) G2.interior
+    · rw [decide_eq_true (h_iff.mp h), decide_eq_true h]
+    · rw [decide_eq_false (fun h' => h (h_iff.mpr h'))]
+      rw [decide_eq_false h]
+  -- Per-segment predicate equality on members of refinedSegments'.
+  have h_pred_eq_LHS : ∀ s ∈ MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2,
+      p_LHS s = p_RHS s := by
+    intro s h_s_ref
+    -- Non-degeneracy of s.
+    have h_s_nondeg : s.p1 ≠ s.p2 := by
+      unfold MultipolygonIntersectionAlgorithmImpl.refinedSegments' at h_s_ref
+      rw [List.mem_flatMap] at h_s_ref
+      obtain ⟨seg, h_seg_mem, h_s_split⟩ := h_s_ref
+      have h_seg_nondeg : seg.p1 ≠ seg.p2 := h1_nondeg seg h_seg_mem
+      have h_pts_on : ∀ p ∈ refinementPointsForSegment' seg m1 m2, p ∈ seg.toSet :=
+        refinementPointsForSegment'_mem_toSet seg m1 m2 h_seg_nondeg
+      exact splitSegmentAtPoints_nondeg seg _ h_seg_nondeg h_pts_on s h_s_split
+    -- Transfer s.toEM into arr's segments via the perm.
+    have h_s_in_lhs : s.toEndpointsMultiset ∈
+        (MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).map
+          LineSegment.toEndpointsMultiset :=
+      List.mem_map_of_mem _ h_s_ref
+    have h_s_in_arr : s.toEndpointsMultiset ∈
+        (EvenGraphIntersectionGenProofs.arr G1 G2).segments.map
+          LineSegment.toEndpointsMultiset :=
+      h_top.mem_iff.mp h_s_in_lhs
+    obtain ⟨σ0, hσ0_mem, hσ0_eq⟩ := List.mem_map.mp h_s_in_arr
+    -- σ0.toEM = s.toEM ⇒ equal toSet and endpoint pair.
+    obtain ⟨h_toSet_eq, h_pair_eq⟩ := toEM_eq_imp_toSet_and_pair_eq σ0 s hσ0_eq
+    -- Dichotomy from arr.
+    rcases EvenGraphIntersectionGenProofs.arr_dichotomy G1 G2 σ0 hσ0_mem with
+      h_trans | h_shared
+    · -- TRANSVERSAL: σ0.toSet ∩ ∂G2 ⊆ {σ0.p1, σ0.p2}. Rewrite to s.
+      have h_inter : s.toSet ∩ m2.toBoundarySet ⊆ ({s.p1, s.p2} : Set Vector2D) := by
+        rw [← h_toSet_eq, ← hG2_bdy, ← h_pair_eq]; exact h_trans
+      have h_iff := midpoint_inside_iff_openInteriorSubset s m2 h2_len h2_nondeg
+        h_s_nondeg h_inter
+      show pointInsideMultipolygonBool (segmentMidpoint s) m2 =
+          decide (segmentOpenInteriorSubset s G2.interior)
+      rw [hG2_int]
+      by_cases h : pointInsideMultipolygonBool (segmentMidpoint s) m2 = true
+      · rw [h]; symm; simp only [decide_eq_true_eq]; exact h_iff.mp h
+      · push_neg at h
+        have h_false : pointInsideMultipolygonBool (segmentMidpoint s) m2 = false := by
+          rcases h_b : pointInsideMultipolygonBool (segmentMidpoint s) m2 with _ | _
+          · rfl
+          · exact absurd h_b h
+        rw [h_false]; symm
+        simp only [decide_eq_false_iff_not]
+        intro h_subset
+        exact h (h_iff.mpr h_subset)
+    · -- SHARED: σ0.toSet ⊆ ∂G2. Then s.toSet ⊆ m2.toBoundarySet; both predicates false.
+      have h_s_sub : s.toSet ⊆ m2.toBoundarySet := by
+        rw [← h_toSet_eq, ← hG2_bdy]; exact h_shared
+      -- Midpoint facts.
+      obtain ⟨h_mid_on, h_mid_ne1, h_mid_ne2⟩ :=
+        segmentMidpoint_mem_open_interior s h_s_nondeg
+      set mid := segmentMidpoint s with hmid_def
+      have h_mid_bdy : mid ∈ m2.toBoundarySet := h_s_sub h_mid_on
+      -- p_LHS s = false.
+      have h_LHS_false : pointInsideMultipolygonBool mid m2 = false :=
+        pointInsideMultipolygonBool_false_of_mem_boundary mid m2 h2_nondeg h_mid_bdy
+      -- p_RHS s = false.
+      have h_RHS_false : decide (segmentOpenInteriorSubset s G2.interior) = false := by
+        rw [decide_eq_false_iff_not]
+        intro h_subset
+        have h_mid_int : mid ∈ G2.interior := h_subset mid h_mid_on h_mid_ne1 h_mid_ne2
+        rw [hG2_int] at h_mid_int
+        -- But mid ∈ m2.toBoundarySet, so it is on some segment, contradicting interior.
+        obtain ⟨seg, hseg_mem, hmid_seg⟩ := h_mid_bdy
+        exact (h_mid_int.1 seg hseg_mem) hmid_seg
+      show pointInsideMultipolygonBool (segmentMidpoint s) m2 =
+          decide (segmentOpenInteriorSubset s G2.interior)
+      rw [h_LHS_false, h_RHS_false]
+  -- Assemble: rewrite selectInsideOther/selectSegmentsInside as filters and apply the
+  -- swap-invariance perm transfer.
+  show ((MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).filter p_LHS).map
+        LineSegment.toEndpointsMultiset ~
+       ((EvenGraphIntersectionGenProofs.arr G1 G2).segments.filter p_RHS).map
+        LineSegment.toEndpointsMultiset
+  have h_filter_LHS_eq :
+      (MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).filter p_LHS =
+      (MultipolygonIntersectionAlgorithmImpl.refinedSegments' m1 m2).filter p_RHS := by
+    apply List.filter_congr
+    intro s h_s
+    exact h_pred_eq_LHS s h_s
+  rw [h_filter_LHS_eq]
+  exact map_toEM_filter_perm_of_swap_invariant _ _ p_RHS h_RHS_swap h_top
+
+
+/-! ## Shared-edge flip test: correctness of `onInterBoundaryBool`. -/
+
+section OnInterBoundaryBool
+
+open EvenGraphIntersectionGenProofs
+
+/-- The Impl crossing-parameter equals the proof-side `tOff`. -/
+private theorem tOffImpl_eq (q : Rat) (s : LineSegment) (p : Vector2D) :
+    tOffImpl q s p = tOff q s p := rfl
+
+/-- The Impl clearance-fold equals the proof-side `offClearance`. -/
+private theorem offClearanceImpl_eq (ε q : Rat) (L : List LineSegment) (p : Vector2D) :
+    offClearanceImpl ε q L p = offClearance ε q L p := by
+  unfold offClearanceImpl offClearance
+  rfl
+
+/-- **Generic point clearance** (list-parametric version of `exists_point_clearance`): for a base
+    point `p`, sign `ε = ±1`, and a list `L` of segments whose `(1,q)`-denominators are all
+    nonzero, every offset `p + μ·(ε, ε·q)` with `0 < μ ≤ offClearance ε q L p / 2` is off every
+    segment of `L`. -/
+private theorem point_clearance_generic (ε q : ℚ) (hε : ε = 1 ∨ ε = -1)
+    (L : List LineSegment) (p : Vector2D)
+    (hden : ∀ s ∈ L, ((s.p2.y - s.p1.y) - q * (s.p2.x - s.p1.x)) ≠ 0)
+    (μ : ℚ) (hμpos : 0 < μ) (hμle : μ ≤ offClearance ε q L p / 2) :
+    ∀ s ∈ L, (⟨p.x + μ * ε, p.y + μ * (ε * q)⟩ : Vector2D) ∉ s.toSet := by
+  intro s hs hmem
+  have hmem' : (⟨p.x + (μ * ε) * 1, p.y + (μ * ε) * q⟩ : Vector2D) ∈ s.toSet := by
+    have hxe : p.x + (μ * ε) * 1 = p.x + μ * ε := by ring
+    have hye : p.y + (μ * ε) * q = p.y + μ * (ε * q) := by ring
+    rw [show (⟨p.x + (μ * ε) * 1, p.y + (μ * ε) * q⟩ : Vector2D) =
+        (⟨p.x + μ * ε, p.y + μ * (ε * q)⟩ : Vector2D) from Vector2D.ext hxe hye]
+    exact hmem
+  have hμ_eq : μ * ε = tOff q s p := tOff_eq_of_mem q s p (hden s hs) (μ * ε) hmem'
+  have hε2 : ε * ε = 1 := by rcases hε with h | h <;> rw [h] <;> norm_num
+  have htpos : 0 < ε * tOff q s p := by
+    rw [← hμ_eq]
+    calc 0 < μ := hμpos
+      _ = ε * (μ * ε) := by rw [show ε * (μ * ε) = μ * (ε * ε) by ring, hε2, mul_one]
+  have hclear_le : offClearance ε q L p ≤ ε * tOff q s p :=
+    offClearance_le ε q L p s hs htpos
+  rw [← hμ_eq] at hclear_le
+  have hμμ : ε * (μ * ε) = μ := by rw [show ε * (μ * ε) = μ * (ε * ε) by ring, hε2, mul_one]
+  rw [hμμ] at hclear_le
+  have hpos := offClearance_pos ε q L p
+  linarith
+
+/-- The boolean collinearity test agrees with `SameLine`. -/
+private theorem sameLineBool_iff (σ s : LineSegment) :
+    sameLineBool σ s = true ↔ SameLine σ s := by
+  unfold sameLineBool SameLine lineOf
+  simp only [Bool.and_eq_true, decide_eq_true_eq, Set.mem_setOf_eq]
+
+/-- `canonSeg σ0` and `σ0` define the same line, so `SameLine` against them coincides. -/
+private theorem sameLine_canonSeg_iff (σ0 s : LineSegment) :
+    SameLine (canonSeg σ0) s ↔ SameLine σ0 s := by
+  unfold canonSeg
+  split
+  · rfl
+  · -- swapped: lineOf ⟨σ0.p2, σ0.p1⟩ = lineOf σ0 as a set predicate.
+    constructor <;> rintro ⟨h1, h2⟩ <;>
+      refine ⟨?_, ?_⟩ <;>
+      · simp only [lineOf, Set.mem_setOf_eq] at h1 h2 ⊢
+        linarith
+
+/-- A point in `σ0`'s open interior is off every `m1`-segment non-collinear with `σ0`. -/
+private theorem crossing_off_m1_nonCollinear
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (σ0 : LineSegment)
+    (hσ0 : σ0 ∈ (arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments)
+    (s : LineSegment) (hs : s ∈ m1.segments) (hncol : ¬ SameLine σ0 s)
+    (c : Vector2D) (hc : c ∈ σ0.toSet) (hc1 : c ≠ σ0.p1) (hc2 : c ≠ σ0.p2) :
+    c ∉ s.toSet := by
+  intro hcs
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  have hG1_segs : G1.segments = m1.segments :=
+    Multipolygon.toEvenGraph_segments_eq m1 h1_len h1_nondeg
+  have hs_G1 : s ∈ G1.segments := by rw [hG1_segs]; exact hs
+  have hsnd : s.p1 ≠ s.p2 := h1_nondeg s hs
+  obtain ⟨σ', hσ'_mem, hcσ', hσ'sub⟩ := graphRefinementSelf_segCover G1 s hs_G1 c hcs
+  have hσ'nd : σ'.p1 ≠ σ'.p2 :=
+    (EvenGraphRefinementProofs.graphRefinementSelf G1).segments_nondegenerate σ' hσ'_mem
+  -- ¬ SameLine σ0 σ'
+  have hncol' : ¬ SameLine σ0 σ' := by
+    intro hsl
+    apply hncol
+    -- SameLine s σ' (both σ' endpoints on lineOf s)
+    have hσ's : SameLine s σ' :=
+      ⟨toSet_subset_lineOf s (hσ'sub (seg_p1_mem σ')),
+       toSet_subset_lineOf s (hσ'sub (seg_p2_mem σ'))⟩
+    have hσ'_s : SameLine σ' s := sameLine_symm s σ' hsnd hσ'nd hσ's
+    have hσ'_σ0 : SameLine σ' σ0 := sameLine_symm σ0 σ'
+      ((arr G1 G2).segments_nondegenerate σ0 hσ0) hσ'nd hsl
+    exact sameLine_trans_through σ' σ0 s hσ'nd
+      ((arr G1 G2).segments_nondegenerate σ0 hσ0) hσ'_σ0 hσ'_s
+  have := arr_int_avoids_noncollinear G1 G2 σ0 hσ0 σ'
+    (List.mem_append_left _ hσ'_mem) hncol' c hc hc1 hc2
+  exact this hcσ'
+
+/-- A point in `σ0`'s open interior is off every `m2`-segment non-collinear with `σ0`. -/
+private theorem crossing_off_m2_nonCollinear
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (σ0 : LineSegment)
+    (hσ0 : σ0 ∈ (arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments)
+    (s : LineSegment) (hs : s ∈ m2.segments) (hncol : ¬ SameLine σ0 s)
+    (c : Vector2D) (hc : c ∈ σ0.toSet) (hc1 : c ≠ σ0.p1) (hc2 : c ≠ σ0.p2) :
+    c ∉ s.toSet := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  have hG2_segs : G2.segments = m2.segments :=
+    Multipolygon.toEvenGraph_segments_eq m2 h2_len h2_nondeg
+  have hs_G2 : s ∈ G2.segments := by rw [hG2_segs]; exact hs
+  exact arr_int_avoids_noncollinear G1 G2 σ0 hσ0 s
+    (List.mem_append_right _ hs_G2) hncol c hc hc1 hc2
+
+/-- If a slope `q` avoids the finite "bad slope" set built from `(σ :: L)`, it gives a good
+    direction `(1,q)`: transversal to `σ` and non-parallel to every segment in `L`. -/
+private theorem goodSlopeCond_of_not_bad (σ : LineSegment) (hnd : σ.p1 ≠ σ.p2)
+    (L : List LineSegment) (hLnd : ∀ s ∈ L, s.p1 ≠ s.p2) (q : ℚ)
+    (hq : q ∉ ((σ :: L).filterMap fun seg =>
+      if seg.p2.x = seg.p1.x then none
+      else some ((seg.p2.y - seg.p1.y) / (seg.p2.x - seg.p1.x))).toFinset) :
+    goodSlopeCond σ L q = true := by
+  have key : ∀ seg ∈ (σ :: L), seg.p1 ≠ seg.p2 →
+      ((seg.p2.y - seg.p1.y) - q * (seg.p2.x - seg.p1.x)) ≠ 0 := by
+    intro seg hmem hne hpar
+    by_cases hx : seg.p2.x = seg.p1.x
+    · have hxsub : seg.p2.x - seg.p1.x = 0 := by linarith
+      have hy_eq : seg.p2.y - seg.p1.y = 0 := by rw [hxsub] at hpar; linarith
+      exact hne (Vector2D.ext (by linarith) (by linarith))
+    · apply hq
+      simp only [List.mem_toFinset, List.mem_filterMap]
+      refine ⟨seg, hmem, ?_⟩
+      have hxne : seg.p2.x - seg.p1.x ≠ 0 := sub_ne_zero.mpr hx
+      have hq_eq : q = (seg.p2.y - seg.p1.y) / (seg.p2.x - seg.p1.x) := by
+        rw [eq_div_iff hxne]; linarith
+      simp only [if_neg hx]; exact hq_eq ▸ rfl
+  unfold goodSlopeCond
+  rw [Bool.and_eq_true]
+  constructor
+  · rw [decide_eq_true_eq]
+    have := key σ (List.mem_cons_self _ _) hnd
+    intro hκ; apply this; linarith
+  · rw [List.all_eq_true]
+    intro s hs
+    rw [decide_eq_true_eq]
+    exact key s (List.mem_cons_of_mem _ hs) (hLnd s hs)
+
+/-- The good-slope search succeeds: for `N > L.length + 1`, some candidate `n < N` is good. -/
+private theorem exists_good_n (σ : LineSegment) (hnd : σ.p1 ≠ σ.p2)
+    (L : List LineSegment) (hLnd : ∀ s ∈ L, s.p1 ≠ s.p2) (N : ℕ) (hN : L.length + 1 < N) :
+    ∃ n : ℕ, n < N ∧ goodSlopeCond σ L (n : ℚ) = true := by
+  set B : Finset ℚ := ((σ :: L).filterMap fun seg =>
+    if seg.p2.x = seg.p1.x then none
+    else some ((seg.p2.y - seg.p1.y) / (seg.p2.x - seg.p1.x))).toFinset with hB
+  -- card B ≤ L.length + 1 < N
+  have hBcard : B.card ≤ L.length + 1 := by
+    calc B.card ≤ ((σ :: L).filterMap fun seg =>
+            if seg.p2.x = seg.p1.x then none
+            else some ((seg.p2.y - seg.p1.y) / (seg.p2.x - seg.p1.x))).length :=
+          List.toFinset_card_le _
+      _ ≤ (σ :: L).length := List.length_filterMap_le _ _
+      _ = L.length + 1 := by simp [List.length_cons, Nat.add_comm]
+  -- some n < N has cast ∉ B
+  by_contra hcon
+  push_neg at hcon
+  -- every n < N has (n:ℚ) ∈ B
+  have hall : ∀ n : ℕ, n < N → (n : ℚ) ∈ B := by
+    intro n hn
+    by_contra hnB
+    exact (hcon n hn) (goodSlopeCond_of_not_bad σ hnd L hLnd (n : ℚ) hnB)
+  -- inject Finset.range N into B
+  have hsub : (Finset.range N).image (fun n : ℕ => (Nat.cast n : ℚ)) ⊆ B := by
+    intro x hx
+    simp only [Finset.mem_image, Finset.mem_range] at hx
+    obtain ⟨n, hn, rfl⟩ := hx
+    exact hall n hn
+  have hinj : Set.InjOn (fun n : ℕ => (Nat.cast n : ℚ)) (Finset.range N) := by
+    intro a _ b _ hab
+    exact Nat.cast_injective hab
+  have hcardImg : ((Finset.range N).image (fun n : ℕ => (Nat.cast n : ℚ))).card = N := by
+    rw [Finset.card_image_of_injOn hinj, Finset.card_range]
+  have : N ≤ B.card := hcardImg ▸ Finset.card_le_card hsub
+  omega
+
+/-- Every non-collinear boundary segment is non-degenerate. -/
+private theorem nonCollinearSegsBool_nondeg (σ : LineSegment) (m1 m2 : Multipolygon)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    ∀ s ∈ nonCollinearSegsBool σ m1 m2, s.p1 ≠ s.p2 := by
+  intro s hs
+  unfold nonCollinearSegsBool at hs
+  rw [List.mem_filter] at hs
+  rcases List.mem_append.mp hs.1 with h | h
+  · exact h1_nondeg s h
+  · exact h2_nondeg s h
+
+/-- The good-slope search returns a slope satisfying `goodSlopeCond`. -/
+private theorem goodSlope_spec (σ : LineSegment) (hnd : σ.p1 ≠ σ.p2) (m1 m2 : Multipolygon)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    goodSlopeCond σ (nonCollinearSegsBool σ m1 m2) (goodSlope σ m1 m2) = true := by
+  set L := nonCollinearSegsBool σ m1 m2 with hL
+  set N := m1.segments.length + m2.segments.length + 2 with hN
+  -- length bound: L.length + 1 < N
+  have hLlen : L.length ≤ m1.segments.length + m2.segments.length := by
+    have h1 : (nonCollinearSegsBool σ m1 m2).length ≤ (m1.segments ++ m2.segments).length :=
+      List.length_filter_le _ _
+    have h2 : (m1.segments ++ m2.segments).length =
+        m1.segments.length + m2.segments.length := by rw [List.length_append]
+    rw [hL]; omega
+  have hNbig : L.length + 1 < N := by omega
+  obtain ⟨n, hn_lt, hn_good⟩ := exists_good_n σ hnd L
+    (nonCollinearSegsBool_nondeg σ m1 m2 h1_nondeg h2_nondeg) N hNbig
+  -- the candidate (n : ℚ) is in the candidate list
+  set cands := (List.range N).map (fun n => (Nat.cast n : Rat)) with hcands
+  have hn_mem : (Nat.cast n : Rat) ∈ cands := by
+    rw [hcands, List.mem_map]
+    exact ⟨n, List.mem_range.mpr hn_lt, rfl⟩
+  -- find? succeeds
+  unfold goodSlope
+  simp only [← hL, ← hN, ← hcands]
+  cases hfind : cands.find? (fun q => goodSlopeCond σ L q) with
+  | none =>
+    rw [List.find?_eq_none] at hfind
+    exact absurd hn_good (by have := hfind _ hn_mem; simpa using this)
+  | some q =>
+    simp only
+    exact List.find?_some hfind
+
+/-- `canonSeg σ0` and `σ0` have the same midpoint. -/
+private theorem segmentMidpoint_canonSeg (σ0 : LineSegment) :
+    segmentMidpoint (canonSeg σ0) = segmentMidpoint σ0 := by
+  unfold canonSeg segmentMidpoint
+  split
+  · rfl
+  · simp only []; exact Vector2D.ext (by ring) (by ring)
+
+/-- `canonSeg σ0` and `σ0` define the same line. -/
+private theorem lineOf_canonSeg (σ0 : LineSegment) :
+    lineOf (canonSeg σ0) = lineOf σ0 := by
+  unfold canonSeg
+  split
+  · rfl
+  · ext p
+    simp only [lineOf, Set.mem_setOf_eq]
+    constructor <;> intro h <;> linarith
+
+/-- The midpoint of a non-degenerate segment lies on it but differs from both endpoints. -/
+private theorem segmentMidpoint_mem (σ : LineSegment) :
+    segmentMidpoint σ ∈ σ.toSet := by
+  refine ⟨1/2, by norm_num, by norm_num, ?_, ?_⟩ <;>
+    · unfold segmentMidpoint; simp only []; ring
+
+private theorem segmentMidpoint_ne_p1 (σ : LineSegment) (hnd : σ.p1 ≠ σ.p2) :
+    segmentMidpoint σ ≠ σ.p1 := by
+  intro h
+  unfold segmentMidpoint at h
+  have hx := congrArg Vector2D.x h
+  have hy := congrArg Vector2D.y h
+  simp only [] at hx hy
+  exact hnd (Vector2D.ext (by linarith) (by linarith)).symm
+
+private theorem segmentMidpoint_ne_p2 (σ : LineSegment) (hnd : σ.p1 ≠ σ.p2) :
+    segmentMidpoint σ ≠ σ.p2 := by
+  intro h
+  unfold segmentMidpoint at h
+  have hx := congrArg Vector2D.x h
+  have hy := congrArg Vector2D.y h
+  simp only [] at hx hy
+  exact hnd (Vector2D.ext (by linarith) (by linarith))
+
+/-- Parametrisation of a point of the transversal `[a, b]` with
+    `a = ⟨c.x+δ, c.y+δ·q⟩`, `b = ⟨c.x-δ, c.y-δ·q⟩`: it equals `⟨c.x + s·1, c.y + s·q⟩` for some
+    `s ∈ [-δ, δ]`. -/
+private theorem transversal_param (c : Vector2D) (δ q : ℚ) (hδ : 0 ≤ δ) (x : Vector2D)
+    (hx : x ∈ (LineSegment.mk ⟨c.x + δ, c.y + δ * q⟩ ⟨c.x - δ, c.y - δ * q⟩).toSet) :
+    ∃ s : ℚ, -δ ≤ s ∧ s ≤ δ ∧
+      x = (⟨c.x + s * 1, c.y + s * q⟩ : Vector2D) := by
+  obtain ⟨w, hw0, hw1, hxx, hxy⟩ := hx
+  refine ⟨δ * (1 - 2 * w), ?_, ?_, ?_⟩
+  · nlinarith [hw0, hw1, hδ]
+  · nlinarith [hw0, hw1, hδ]
+  · refine Vector2D.ext ?_ ?_
+    · simp only [] at hxx ⊢; rw [hxx]; ring
+    · simp only [] at hxy ⊢; rw [hxy]; ring
+
+/-- The clearance computed by `clearanceDelta` is strictly positive. -/
+private theorem clearanceDelta_pos (σ : LineSegment) (m1 m2 : Multipolygon) :
+    0 < clearanceDelta σ m1 m2 := by
+  unfold clearanceDelta
+  simp only []
+  set q := goodSlope σ m1 m2
+  set L := nonCollinearSegsBool σ m1 m2
+  set c := segmentMidpoint σ
+  rw [offClearanceImpl_eq, offClearanceImpl_eq]
+  have h1 := offClearance_pos 1 q L c
+  have h2 := offClearance_pos (-1) q L c
+  have : 0 < min (offClearance 1 q L c) (offClearance (-1) q L c) := lt_min h1 h2
+  linarith
+
+/-- **Cleanness of the transversal.** With `σ = canonSeg σ0` for a shared arrangement edge `σ0`,
+    `c` the midpoint, `q = goodSlope`, `δ = clearanceDelta`, the only boundary point on the
+    transversal `[a, b]` (`a = c+δ(1,q)`, `b = c-δ(1,q)`) is `c` itself. -/
+private theorem onInterBoundaryBool_clean
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (σ0 : LineSegment)
+    (hσ0 : σ0 ∈ (arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments) :
+    let G1 := m1.toEvenGraph h1_len h1_nondeg
+    let G2 := m2.toEvenGraph h2_len h2_nondeg
+    let σ := canonSeg σ0
+    let c := segmentMidpoint σ
+    let q := goodSlope σ m1 m2
+    let δ := clearanceDelta σ m1 m2
+    ∀ x ∈ (LineSegment.mk ⟨c.x + δ, c.y + δ * q⟩ ⟨c.x - δ, c.y - δ * q⟩).toSet,
+      (x ∈ G1.toBoundarySet ∨ x ∈ G2.toBoundarySet) → x = c := by
+  intro G1 G2 σ c q δ x hx hxb
+  -- basic facts
+  have hσnd : σ.p1 ≠ σ.p2 := canonSeg_nondeg σ0 ((arr G1 G2).segments_nondegenerate σ0 hσ0)
+  have hδpos : 0 < δ := clearanceDelta_pos σ m1 m2
+  -- good slope spec
+  have hgood : goodSlopeCond σ (nonCollinearSegsBool σ m1 m2) q = true :=
+    goodSlope_spec σ hσnd m1 m2 h1_nondeg h2_nondeg
+  rw [goodSlopeCond] at hgood
+  rw [Bool.and_eq_true] at hgood
+  obtain ⟨hκ_dec, hden_all⟩ := hgood
+  have hκ : (σ.p2.x - σ.p1.x) * q - (σ.p2.y - σ.p1.y) ≠ 0 := by
+    rw [decide_eq_true_eq] at hκ_dec; exact hκ_dec
+  rw [List.all_eq_true] at hden_all
+  have hden : ∀ s ∈ nonCollinearSegsBool σ m1 m2,
+      ((s.p2.y - s.p1.y) - q * (s.p2.x - s.p1.x)) ≠ 0 := by
+    intro s hs
+    have := hden_all s hs
+    rw [decide_eq_true_eq] at this; exact this
+  -- parametrise x
+  obtain ⟨ss, hss_lo, hss_hi, hx_eq⟩ := transversal_param c δ q (le_of_lt hδpos) x hx
+  -- c ∈ lineOf σ, so sideOf σ c = 0
+  have hc_line : c ∈ lineOf σ := toSet_subset_lineOf σ (segmentMidpoint_mem σ)
+  have hc0 : sideOf σ c = 0 := (sideOf_eq_zero_iff σ c).mpr hc_line
+  -- sideOf σ x = ss * κ
+  have hside : sideOf σ x = ss * ((σ.p2.x - σ.p1.x) * q - (σ.p2.y - σ.p1.y)) := by
+    rw [hx_eq]
+    have := sideOf_offset σ c hc_line ss q
+    simpa using this
+  -- δ bounds for clearance
+  have hδq : δ ≤ offClearance 1 q (nonCollinearSegsBool σ m1 m2) c / 2 := by
+    show clearanceDelta σ m1 m2 ≤ _
+    unfold clearanceDelta
+    simp only []
+    rw [offClearanceImpl_eq, offClearanceImpl_eq]
+    have := min_le_left (offClearance 1 q (nonCollinearSegsBool σ m1 m2) c)
+      (offClearance (-1) q (nonCollinearSegsBool σ m1 m2) c)
+    linarith
+  have hδq' : δ ≤ offClearance (-1) q (nonCollinearSegsBool σ m1 m2) c / 2 := by
+    show clearanceDelta σ m1 m2 ≤ _
+    unfold clearanceDelta
+    simp only []
+    rw [offClearanceImpl_eq, offClearanceImpl_eq]
+    have := min_le_right (offClearance 1 q (nonCollinearSegsBool σ m1 m2) c)
+      (offClearance (-1) q (nonCollinearSegsBool σ m1 m2) c)
+    linarith
+  -- boundary membership: x on some m1 or m2 segment
+  have hG1_bdy : G1.toBoundarySet = m1.toBoundarySet :=
+    Multipolygon.toEvenGraph_toBoundarySet_eq m1 h1_len h1_nondeg
+  have hG2_bdy : G2.toBoundarySet = m2.toBoundarySet :=
+    Multipolygon.toEvenGraph_toBoundarySet_eq m2 h2_len h2_nondeg
+  -- Collect: x ∈ t.toSet for some t ∈ m1.segments ∪ m2.segments, with a flag which side
+  obtain ⟨t, ht_mem, hxt, hside_flag⟩ :
+      ∃ t, (t ∈ m1.segments ∨ t ∈ m2.segments) ∧ x ∈ t.toSet ∧
+        (t ∈ m1.segments ∨ t ∈ m2.segments) := by
+    rcases hxb with hb1 | hb2
+    · rw [hG1_bdy, Multipolygon.toBoundarySet, Set.mem_setOf_eq] at hb1
+      obtain ⟨t, ht, hxt⟩ := hb1
+      exact ⟨t, Or.inl ht, hxt, Or.inl ht⟩
+    · rw [hG2_bdy, Multipolygon.toBoundarySet, Set.mem_setOf_eq] at hb2
+      obtain ⟨t, ht, hxt⟩ := hb2
+      exact ⟨t, Or.inr ht, hxt, Or.inr ht⟩
+  clear hside_flag
+  -- case on collinearity of t with σ0
+  by_cases hsl : SameLine σ0 t
+  · -- collinear: x ∈ lineOf σ0 = lineOf σ, so sideOf σ x = 0, so ss = 0, so x = c.
+    have hx_lineσ0 : x ∈ lineOf σ0 := sameLine_toSet_subset_lineOf σ0 t hsl hxt
+    have hx_lineσ : x ∈ lineOf σ := by rw [lineOf_canonSeg]; exact hx_lineσ0
+    have hside0 : sideOf σ x = 0 := (sideOf_eq_zero_iff σ x).mpr hx_lineσ
+    rw [hside] at hside0
+    have hss0 : ss = 0 := by
+      rcases mul_eq_zero.mp hside0 with h | h
+      · exact h
+      · exact absurd h hκ
+    rw [hx_eq, hss0]
+    refine Vector2D.ext ?_ ?_ <;> simp only [] <;> ring
+  · -- non-collinear: t ∈ nonCollinearSegsBool, contradiction unless ss = 0.
+    have hsl_σ : ¬ SameLine σ t := by
+      rw [sameLine_canonSeg_iff]; exact hsl
+    have ht_ncb : t ∈ nonCollinearSegsBool σ m1 m2 := by
+      unfold nonCollinearSegsBool
+      rw [List.mem_filter]
+      refine ⟨List.mem_append.mpr ht_mem, ?_⟩
+      rw [Bool.not_eq_true']
+      rw [Bool.eq_false_iff]
+      intro hbtrue
+      exact hsl_σ ((sameLineBool_iff σ t).mp hbtrue)
+    -- if ss ≠ 0, contradiction via clearance
+    by_cases hss0 : ss = 0
+    · rw [hx_eq, hss0]
+      refine Vector2D.ext ?_ ?_ <;> simp only [] <;> ring
+    · exfalso
+      rcases lt_or_gt_of_ne hss0 with hneg | hpos
+      · -- ss < 0: use ε = -1, μ = -ss
+        have hμ : (-ss) ≤ offClearance (-1) q (nonCollinearSegsBool σ m1 m2) c / 2 := by
+          have : -ss ≤ δ := by linarith
+          linarith
+        have hoff := point_clearance_generic (-1) q (Or.inr rfl)
+          (nonCollinearSegsBool σ m1 m2) c hden (-ss) (by linarith) hμ t ht_ncb
+        apply hoff
+        have heq : (⟨c.x + (-ss) * (-1), c.y + (-ss) * ((-1) * q)⟩ : Vector2D) = x := by
+          rw [hx_eq]; exact Vector2D.ext (by ring) (by ring)
+        rw [heq]; exact hxt
+      · -- ss > 0: use ε = 1, μ = ss
+        have hμ : ss ≤ offClearance 1 q (nonCollinearSegsBool σ m1 m2) c / 2 := by
+          linarith
+        have hoff := point_clearance_generic 1 q (Or.inl rfl)
+          (nonCollinearSegsBool σ m1 m2) c hden ss hpos hμ t ht_ncb
+        apply hoff
+        have heq : (⟨c.x + ss * 1, c.y + ss * (1 * q)⟩ : Vector2D) = x := by
+          rw [hx_eq]; exact Vector2D.ext (by ring) (by ring)
+        rw [heq]; exact hxt
+
+/-- Bool/Prop bridge for the symmetric-difference flip. -/
+private theorem bne_eq_decide_ne (ba bb : Bool) (Pa Pb : Prop) [Decidable Pa] [Decidable Pb]
+    (ha : ba = true ↔ Pa) (hb : bb = true ↔ Pb) :
+    (ba != bb) = decide (Pa ≠ Pb) := by
+  rcases Bool.eq_false_or_eq_true ba with rfl | rfl <;>
+    rcases Bool.eq_false_or_eq_true bb with rfl | rfl <;>
+    simp_all [bne, ne_eq, eq_iff_iff]
+
+/-- **Correctness of the shared-edge flip test.** For a shared arrangement edge `σ0` of `m1, m2`,
+    `onInterBoundaryBool (canonSeg σ0) m1 m2` decides `onInterBoundary G1 G2 (canonSeg σ0)`. -/
+theorem onInterBoundaryBool_eq
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (σ0 : LineSegment)
+    (hσ0 : σ0 ∈ (EvenGraphIntersectionGenProofs.arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments)
+    (hshared : EvenGraphIntersectionGenProofs.IsShared (m2.toEvenGraph h2_len h2_nondeg) σ0) :
+    MultipolygonIntersectionAlgorithmImpl.onInterBoundaryBool (canonSeg σ0) m1 m2 =
+      decide (EvenGraphIntersectionGenProofs.onInterBoundary
+        (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg) (canonSeg σ0)) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  set σ := canonSeg σ0 with hσ
+  set c := segmentMidpoint σ with hc
+  set q := goodSlope σ m1 m2 with hq
+  set δ := clearanceDelta σ m1 m2 with hδ
+  set a : Vector2D := ⟨c.x + δ, c.y + δ * q⟩ with ha
+  set b : Vector2D := ⟨c.x - δ, c.y - δ * q⟩ with hb
+  have hσnd : σ.p1 ≠ σ.p2 := canonSeg_nondeg σ0 ((arr G1 G2).segments_nondegenerate σ0 hσ0)
+  have hδpos : 0 < δ := clearanceDelta_pos σ m1 m2
+  -- c facts (wrt σ0)
+  have hc_mem_σ0 : c ∈ σ0.toSet := by
+    have : c ∈ σ.toSet := segmentMidpoint_mem σ
+    rwa [hσ, canonSeg_toSet] at this
+  -- σ0's endpoints are σ's (possibly swapped): use midpoint equality
+  have hmid_eq : c = segmentMidpoint σ0 := by rw [hc, hσ, segmentMidpoint_canonSeg]
+  have hσ0nd : σ0.p1 ≠ σ0.p2 := (arr G1 G2).segments_nondegenerate σ0 hσ0
+  have hc_ne1 : c ≠ σ0.p1 := by rw [hmid_eq]; exact segmentMidpoint_ne_p1 σ0 hσ0nd
+  have hc_ne2 : c ≠ σ0.p2 := by rw [hmid_eq]; exact segmentMidpoint_ne_p2 σ0 hσ0nd
+  -- cleanness
+  have hclean := onInterBoundaryBool_clean m1 m2 h1_len h2_len h1_nondeg h2_nondeg σ0 hσ0
+  simp only [← hG1, ← hG2, ← hσ, ← hc, ← hq, ← hδ] at hclean
+  -- the transversal segment
+  have ha_mem : a ∈ (LineSegment.mk a b).toSet := ⟨0, le_refl _, zero_le_one, by ring, by ring⟩
+  have hb_mem : b ∈ (LineSegment.mk a b).toSet := ⟨1, zero_le_one, le_refl _, by ring, by ring⟩
+  have hc_ab : c ∈ (LineSegment.mk a b).toSet :=
+    ⟨1/2, by norm_num, by norm_num, by rw [ha, hb]; simp only []; ring,
+      by rw [ha, hb]; simp only []; ring⟩
+  -- a ≠ c, b ≠ c
+  have ha_ne_c : a ≠ c := by
+    intro h; have := congrArg Vector2D.x h; rw [ha] at this; simp only [] at this; linarith
+  have hb_ne_c : b ≠ c := by
+    intro h; have := congrArg Vector2D.x h; rw [hb] at this; simp only [] at this; linarith
+  -- off-boundary
+  have ha1 : a ∉ G1.toBoundarySet := fun hbd => ha_ne_c (hclean a ha_mem (Or.inl hbd))
+  have ha2 : a ∉ G2.toBoundarySet := fun hbd => ha_ne_c (hclean a ha_mem (Or.inr hbd))
+  have hb1 : b ∉ G1.toBoundarySet := fun hbd => hb_ne_c (hclean b hb_mem (Or.inl hbd))
+  have hb2 : b ∉ G2.toBoundarySet := fun hbd => hb_ne_c (hclean b hb_mem (Or.inr hbd))
+  -- apply the characterisation
+  have hflip := onInterBoundary_iff_flip G1 G2 σ0 hσ0 hshared a b c
+    ha1 ha2 hb1 hb2 hc_mem_σ0 hc_ne1 hc_ne2 hc_ab hclean
+  -- translate to Bool via pointInsideMultipolygonBool
+  have hG1_int : G1.interior = m1.interior :=
+    Multipolygon.toEvenGraph_interior_eq m1 h1_len h1_nondeg
+  have hG2_int : G2.interior = m2.interior :=
+    Multipolygon.toEvenGraph_interior_eq m2 h2_len h2_nondeg
+  have haA : (pointInsideMultipolygonBool a m1 = true) ↔ a ∈ G1.interior := by
+    rw [pointInsideMultipolygonBool_iff a m1 h1_len h1_nondeg, hG1_int]
+  have haB : (pointInsideMultipolygonBool a m2 = true) ↔ a ∈ G2.interior := by
+    rw [pointInsideMultipolygonBool_iff a m2 h2_len h2_nondeg, hG2_int]
+  have hbA : (pointInsideMultipolygonBool b m1 = true) ↔ b ∈ G1.interior := by
+    rw [pointInsideMultipolygonBool_iff b m1 h1_len h1_nondeg, hG1_int]
+  have hbB : (pointInsideMultipolygonBool b m2 = true) ↔ b ∈ G2.interior := by
+    rw [pointInsideMultipolygonBool_iff b m2 h2_len h2_nondeg, hG2_int]
+  -- unfold the Impl test
+  have hImpl : onInterBoundaryBool σ m1 m2 =
+      ((pointInsideMultipolygonBool a m1 && pointInsideMultipolygonBool a m2) !=
+       (pointInsideMultipolygonBool b m1 && pointInsideMultipolygonBool b m2)) := by
+    rw [hσ]
+    unfold onInterBoundaryBool
+    simp only [← hc, ← hq, ← hδ, ← ha, ← hb]
+  rw [hImpl]
+  -- bridge
+  have haAB : ((pointInsideMultipolygonBool a m1 && pointInsideMultipolygonBool a m2) = true) ↔
+      (a ∈ G1.interior ∧ a ∈ G2.interior) := by
+    rw [Bool.and_eq_true]; exact and_congr haA haB
+  have hbAB : ((pointInsideMultipolygonBool b m1 && pointInsideMultipolygonBool b m2) = true) ↔
+      (b ∈ G1.interior ∧ b ∈ G2.interior) := by
+    rw [Bool.and_eq_true]; exact and_congr hbA hbB
+  rw [bne_eq_decide_ne _ _ _ _ haAB hbAB]
+  -- decide (Pa ≠ Pb) = decide (onInterBoundary …) via hflip
+  exact (decide_eq_decide.mpr hflip).symm
+
+/-! ## Shared-edge contribution: `sharedContribution_perm` and full assembly. -/
+
+/-- `canonSegImpl` and `canonSeg` are literally the same function. -/
+private theorem canonSegImpl_eq_canonSeg (σ : LineSegment) :
+    canonSegImpl σ = canonSeg σ := rfl
+
+/-- Membership in `dedupList l` coincides with membership in `l`. -/
+private theorem dedupList_mem_iff {α : Type*} [DecidableEq α] :
+    ∀ (l : List α) (x : α), x ∈ dedupList l ↔ x ∈ l
+  | [], x => by simp [dedupList]
+  | a :: t, x => by
+    simp only [dedupList, List.mem_cons, List.mem_filter, decide_eq_true_eq]
+    rw [dedupList_mem_iff t x]
+    constructor
+    · rintro (h | ⟨h, _⟩)
+      · exact Or.inl h
+      · exact Or.inr h
+    · rintro (h | h)
+      · exact Or.inl h
+      · by_cases hxa : x = a
+        · exact Or.inl hxa
+        · exact Or.inr ⟨h, hxa⟩
+
+/-- `dedupList l` has no duplicates. -/
+private theorem dedupList_nodup {α : Type*} [DecidableEq α] :
+    ∀ (l : List α), (dedupList l).Nodup
+  | [] => by simp [dedupList]
+  | a :: t => by
+    simp only [dedupList]
+    refine List.nodup_cons.mpr ⟨?_, ?_⟩
+    · intro h
+      rw [List.mem_filter, decide_eq_true_eq] at h
+      exact h.2 rfl
+    · exact (dedupList_nodup t).filter _
+
+/-- Two `Nodup` lists with the same membership are permutations of one another. -/
+private theorem perm_of_nodup_of_mem_iff {α : Type*} [DecidableEq α]
+    {l₁ l₂ : List α} (h₁ : l₁.Nodup) (h₂ : l₂.Nodup)
+    (hmem : ∀ x, x ∈ l₁ ↔ x ∈ l₂) : l₁.Perm l₂ := by
+  rw [List.perm_iff_count]
+  intro a
+  rw [List.count_eq_of_nodup h₁, List.count_eq_of_nodup h₂]
+  by_cases h : a ∈ l₁
+  · rw [if_pos h, if_pos ((hmem a).mp h)]
+  · rw [if_neg h, if_neg (fun hc => h ((hmem a).mpr hc))]
+
+/-- `canonSeg` is idempotent. -/
+private theorem canonSeg_idem (σ : LineSegment) : canonSeg (canonSeg σ) = canonSeg σ := by
+  unfold canonSeg
+  split
+  · rfl
+  · rename_i h
+    push_neg at h
+    obtain ⟨hx, hy⟩ := h
+    have hcond : σ.p2.x < σ.p1.x ∨ (σ.p2.x = σ.p1.x ∧ σ.p2.y ≤ σ.p1.y) := by
+      rcases lt_or_eq_of_le hx with h' | h'
+      · exact Or.inl h'
+      · exact Or.inr ⟨h', le_of_lt (hy h'.symm)⟩
+    show (if (σ.p2.x < σ.p1.x ∨ σ.p2.x = σ.p1.x ∧ σ.p2.y ≤ σ.p1.y) then
+            (⟨σ.p2, σ.p1⟩ : LineSegment) else ⟨σ.p1, σ.p2⟩) = ⟨σ.p2, σ.p1⟩
+    rw [if_pos hcond]
+
+/-- `canonSeg` preserves the endpoint multiset. -/
+private theorem canonSeg_toEM (σ : LineSegment) :
+    (canonSeg σ).toEndpointsMultiset = σ.toEndpointsMultiset := by
+  unfold canonSeg
+  split
+  · rfl
+  · show ({σ.p2, σ.p1} : Multiset Vector2D) = {σ.p1, σ.p2}
+    exact Multiset.cons_swap _ _ _
+
+/-- Equal endpoint multisets give the same canonical orientation. -/
+private theorem canonSeg_eq_of_toEM_eq (s x : LineSegment)
+    (hem : s.toEndpointsMultiset = x.toEndpointsMultiset) :
+    canonSeg s = canonSeg x := by
+  -- Decode the multiset equality into a disjunction on endpoints.
+  have hmem1 : s.p1 ∈ ({x.p1, x.p2} : Multiset Vector2D) := by
+    have h := hem
+    unfold LineSegment.toEndpointsMultiset at h
+    rw [← h]; exact Multiset.mem_cons_self _ _
+  have hmem2 : s.p2 ∈ ({x.p1, x.p2} : Multiset Vector2D) := by
+    have h := hem
+    unfold LineSegment.toEndpointsMultiset at h
+    rw [← h]; exact Multiset.mem_cons_of_mem (Multiset.mem_singleton_self _)
+  have hs1 : s.p1 = x.p1 ∨ s.p1 = x.p2 := by
+    rcases Multiset.mem_cons.mp hmem1 with h | h
+    · exact Or.inl h
+    · exact Or.inr (Multiset.mem_singleton.mp h)
+  have hs2 : s.p2 = x.p1 ∨ s.p2 = x.p2 := by
+    rcases Multiset.mem_cons.mp hmem2 with h | h
+    · exact Or.inl h
+    · exact Or.inr (Multiset.mem_singleton.mp h)
+  -- x.p1 and x.p2 also lie in {s.p1, s.p2}.
+  have hmemx1 : x.p1 ∈ ({s.p1, s.p2} : Multiset Vector2D) := by
+    have h := hem
+    unfold LineSegment.toEndpointsMultiset at h
+    rw [h]; exact Multiset.mem_cons_self _ _
+  have hmemx2 : x.p2 ∈ ({s.p1, s.p2} : Multiset Vector2D) := by
+    have h := hem
+    unfold LineSegment.toEndpointsMultiset at h
+    rw [h]; exact Multiset.mem_cons_of_mem (Multiset.mem_singleton_self _)
+  have hx1 : x.p1 = s.p1 ∨ x.p1 = s.p2 := by
+    rcases Multiset.mem_cons.mp hmemx1 with h | h
+    · exact Or.inl h
+    · exact Or.inr (Multiset.mem_singleton.mp h)
+  have hx2 : x.p2 = s.p1 ∨ x.p2 = s.p2 := by
+    rcases Multiset.mem_cons.mp hmemx2 with h | h
+    · exact Or.inl h
+    · exact Or.inr (Multiset.mem_singleton.mp h)
+  -- Either s = x or s = ⟨x.p2, x.p1⟩.
+  have hcase : (s.p1 = x.p1 ∧ s.p2 = x.p2) ∨ (s.p1 = x.p2 ∧ s.p2 = x.p1) := by
+    rcases hs1 with ha | ha <;> rcases hs2 with hb | hb
+    · -- s.p1 = x.p1, s.p2 = x.p1: then x.p2 = x.p1, so s.p2 = x.p2.
+      have hxe : x.p2 = x.p1 := by
+        rcases hx2 with h | h
+        · rw [h, ha]
+        · rw [h, hb]
+      exact Or.inl ⟨ha, by rw [hb, hxe]⟩
+    · exact Or.inl ⟨ha, hb⟩
+    · exact Or.inr ⟨ha, hb⟩
+    · -- s.p1 = x.p2, s.p2 = x.p2: then x.p1 = x.p2, so s.p2 = x.p1.
+      have hxe : x.p1 = x.p2 := by
+        rcases hx1 with h | h
+        · rw [h, ha]
+        · rw [h, hb]
+      exact Or.inr ⟨ha, by rw [hb, hxe]⟩
+  rcases hcase with ⟨e1, e2⟩ | ⟨e1, e2⟩
+  · have : s = x := by cases s; cases x; simp_all
+    rw [this]
+  · -- s = ⟨x.p2, x.p1⟩.  Show canonSeg s = canonSeg x via the if-branches.
+    have hs_eq : s = (⟨x.p2, x.p1⟩ : LineSegment) := by cases s; cases x; simp_all
+    rw [hs_eq]
+    unfold canonSeg
+    by_cases hxc : x.p1.x < x.p2.x ∨ x.p1.x = x.p2.x ∧ x.p1.y ≤ x.p2.y
+    · -- x canonical (as given), so the ⟨x.p2,x.p1⟩ side is non-canonical unless x.p1=x.p2.
+      rw [if_pos hxc]
+      by_cases hsc : x.p2.x < x.p1.x ∨ x.p2.x = x.p1.x ∧ x.p2.y ≤ x.p1.y
+      · -- both canonical: forces x.p1 = x.p2.
+        have hxeq : x.p1 = x.p2 := by
+          rcases hxc with h1 | ⟨h1x, h1y⟩ <;> rcases hsc with h2 | ⟨h2x, h2y⟩
+          · exact absurd h1 (not_lt.mpr (le_of_lt h2))
+          · exact absurd h1 (not_lt.mpr (le_of_eq h2x))
+          · exact absurd h2 (not_lt.mpr (le_of_eq h1x))
+          · exact Vector2D.ext h1x (le_antisymm h1y h2y)
+        rw [if_pos hsc]
+        show (⟨x.p2, x.p1⟩ : LineSegment) = x
+        cases x; simp_all
+      · rw [if_neg hsc]
+    · -- x not canonical, then ⟨x.p2,x.p1⟩ is canonical.
+      rw [if_neg hxc]
+      push_neg at hxc
+      obtain ⟨hxx, hxy⟩ := hxc
+      have hsc : x.p2.x < x.p1.x ∨ x.p2.x = x.p1.x ∧ x.p2.y ≤ x.p1.y := by
+        rcases lt_or_eq_of_le hxx with h | h
+        · exact Or.inl h
+        · exact Or.inr ⟨h, le_of_lt (hxy h.symm)⟩
+      rw [if_pos hsc]
+
+/-- **(D)** Splitting a `flatMap` of an `if P then [σ] else [σ,σ]` into the `P`-true singletons
+    plus the doubled `¬P` elements, up to permutation. -/
+private theorem flatMap_if_perm (l : List LineSegment) (P : LineSegment → Bool) :
+    (l.flatMap (fun σ => if P σ then [σ] else [σ, σ])).Perm
+      ((l.filter (fun σ => P σ)) ++
+        (l.filter (fun σ => ! P σ)).flatMap (fun σ => [σ, σ])) := by
+  induction l with
+  | nil => simp
+  | cons a t ih =>
+    rw [List.flatMap_cons, List.filter_cons, List.filter_cons]
+    by_cases h : P a = true
+    · rw [if_pos h, h]
+      simp only [Bool.not_true, Bool.false_eq_true, if_false, if_true]
+      -- goal: [a] ++ rest ~ (a :: filterP) ++ filterNotP.flatMap
+      exact (List.perm_cons a).mpr ih
+    · rw [if_neg h]
+      simp only [Bool.not_eq_true] at h
+      rw [h]
+      simp only [Bool.false_eq_true, if_false, Bool.not_false, if_true, List.flatMap_cons]
+      -- goal: [a,a] ++ rest ~ filterP ++ ([a,a] ++ filterNotP.flatMap)
+      refine (List.Perm.append_left [a, a] ih).trans ?_
+      rw [← List.append_assoc, ← List.append_assoc]
+      exact List.Perm.append_right _ List.perm_append_comm
+
+/-- `isSharedBool σ m2` holds iff the midpoint of `σ` lies on `m2`'s boundary. -/
+private theorem isSharedBool_iff_midpoint_mem_boundary (σ : LineSegment) (m2 : Multipolygon)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    isSharedBool σ m2 = true ↔ segmentMidpoint σ ∈ m2.toBoundarySet := by
+  unfold isSharedBool
+  rw [List.any_eq_true]
+  constructor
+  · rintro ⟨s, hs_mem, hs_on⟩
+    exact ⟨s, hs_mem, (pointOnSegmentBool_iff (segmentMidpoint σ) s.p1 s.p2
+      (h2_nondeg s hs_mem)).mp hs_on⟩
+  · rintro ⟨s, hs_mem, hs_on⟩
+    exact ⟨s, hs_mem,
+      pointOnSegmentBool_of_mem_toSet s (segmentMidpoint σ) (h2_nondeg s hs_mem) hs_on⟩
+
+/-- **KEY 2.** For an `arr`-segment `σ0`, the Boolean shared-test on `canonSeg σ0` agrees with
+    the propositional `IsShared` predicate. -/
+private theorem isSharedBool_eq_of_arr_canon
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
+    (σ0 : LineSegment)
+    (hσ0 : σ0 ∈ (EvenGraphIntersectionGenProofs.arr (m1.toEvenGraph h1_len h1_nondeg)
+            (m2.toEvenGraph h2_len h2_nondeg)).segments) :
+    isSharedBool (canonSeg σ0) m2 =
+      decide (EvenGraphIntersectionGenProofs.IsShared (m2.toEvenGraph h2_len h2_nondeg)
+        (canonSeg σ0)) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  have hG2_bdy : G2.toBoundarySet = m2.toBoundarySet :=
+    Multipolygon.toEvenGraph_toBoundarySet_eq m2 h2_len h2_nondeg
+  -- The midpoint of canonSeg σ0 equals the midpoint of σ0.
+  have hmid : segmentMidpoint (canonSeg σ0) = segmentMidpoint σ0 := segmentMidpoint_canonSeg σ0
+  have hσ0nd : σ0.p1 ≠ σ0.p2 := (EvenGraphIntersectionGenProofs.arr G1 G2).segments_nondegenerate σ0 hσ0
+  -- Midpoint facts on σ0.
+  obtain ⟨hmid_on, hmid_ne1, hmid_ne2⟩ := segmentMidpoint_mem_open_interior σ0 hσ0nd
+  -- IsShared (canonSeg σ0) ↔ σ0.toSet ⊆ ∂G2.
+  have hshared_iff : EvenGraphIntersectionGenProofs.IsShared G2 (canonSeg σ0) ↔
+      σ0.toSet ⊆ G2.toBoundarySet := by
+    unfold EvenGraphIntersectionGenProofs.IsShared
+    rw [EvenGraphIntersectionGenProofs.canonSeg_toSet]
+  -- The Bool LHS equals `decide (midpoint ∈ ∂m2)`.
+  have hbool : isSharedBool (canonSeg σ0) m2 =
+      decide (segmentMidpoint σ0 ∈ m2.toBoundarySet) := by
+    rw [show isSharedBool (canonSeg σ0) m2
+          = decide (segmentMidpoint (canonSeg σ0) ∈ m2.toBoundarySet) from ?_, hmid]
+    · by_cases h : segmentMidpoint (canonSeg σ0) ∈ m2.toBoundarySet
+      · rw [decide_eq_true h,
+          (isSharedBool_iff_midpoint_mem_boundary (canonSeg σ0) m2 h2_nondeg).mpr h]
+      · rw [decide_eq_false h]
+        rcases hb : isSharedBool (canonSeg σ0) m2 with _ | _
+        · rfl
+        · exact absurd ((isSharedBool_iff_midpoint_mem_boundary (canonSeg σ0) m2 h2_nondeg).mp hb) h
+  rw [hbool]
+  -- Dichotomy from arr.
+  rcases EvenGraphIntersectionGenProofs.arr_dichotomy G1 G2 σ0 hσ0 with h_trans | h_shared
+  · -- Transversal: midpoint is a strict-interior point, not an endpoint, so not on ∂G2.
+    have hmid_not_bdy : segmentMidpoint σ0 ∉ m2.toBoundarySet := by
+      intro hbd
+      rw [← hG2_bdy] at hbd
+      have := h_trans ⟨hmid_on, hbd⟩
+      simp only [Set.mem_insert_iff, Set.mem_singleton_iff] at this
+      rcases this with h | h
+      · exact hmid_ne1 h
+      · exact hmid_ne2 h
+    have hsh_false : ¬ EvenGraphIntersectionGenProofs.IsShared G2 (canonSeg σ0) := by
+      intro hsh
+      rw [hshared_iff, hG2_bdy] at hsh
+      exact hmid_not_bdy (hsh hmid_on)
+    rw [decide_eq_false hmid_not_bdy, decide_eq_false hsh_false]
+  · -- Shared: midpoint ∈ σ0.toSet ⊆ ∂G2 = ∂m2, both sides true.
+    have hmid_bdy : segmentMidpoint σ0 ∈ m2.toBoundarySet := by
+      rw [← hG2_bdy]; exact h_shared hmid_on
+    have hsh : EvenGraphIntersectionGenProofs.IsShared G2 (canonSeg σ0) := by
+      rw [hshared_iff]; exact h_shared
+    rw [decide_eq_true hmid_bdy, decide_eq_true hsh]
+
+/-- If `x` is canonical and `x.toEM` appears among the endpoint-multisets of `arr`'s segments,
+    then `x = canonSeg σ0` for some `σ0 ∈ arr.segments`. -/
+private theorem canon_mem_arr_eq_canonSeg
+    (G1 G2 : EvenGraph) (x : LineSegment) (hxc : canonSeg x = x)
+    (hxem : x.toEndpointsMultiset ∈
+        (EvenGraphIntersectionGenProofs.arr G1 G2).segments.map LineSegment.toEndpointsMultiset) :
+    ∃ σ0 ∈ (EvenGraphIntersectionGenProofs.arr G1 G2).segments, x = canonSeg σ0 := by
+  obtain ⟨σ0, hσ0_mem, hσ0_em⟩ := List.mem_map.mp hxem
+  refine ⟨σ0, hσ0_mem, ?_⟩
+  -- σ0.toEM = x.toEM ⇒ canonSeg σ0 = canonSeg x = x.
+  have h := canonSeg_eq_of_toEM_eq σ0 x hσ0_em
+  rw [hxc] at h
+  exact h.symm
+
+/-- **KEY 1.** Membership of `x` in `L.map canonSeg` depends only on
+    `L.map toEndpointsMultiset` (and whether `x` is already canonical). -/
+private theorem mem_map_canonSeg_iff (L : List LineSegment) (x : LineSegment) :
+    x ∈ L.map canonSeg ↔
+      (canonSeg x = x ∧ x.toEndpointsMultiset ∈ L.map LineSegment.toEndpointsMultiset) := by
+  constructor
+  · intro hmem
+    obtain ⟨s, hs_mem, hs_eq⟩ := List.mem_map.mp hmem
+    -- x = canonSeg s, so x is canonical (canonSeg idempotent) and toEM x = toEM s.
+    refine ⟨?_, ?_⟩
+    · rw [← hs_eq, canonSeg_idem]
+    · rw [← hs_eq, canonSeg_toEM]
+      exact List.mem_map_of_mem _ hs_mem
+  · rintro ⟨hxcanon, hxem⟩
+    obtain ⟨s, hs_mem, hs_em⟩ := List.mem_map.mp hxem
+    -- s.toEM = x.toEM ⇒ canonSeg s = canonSeg x = x.
+    have hcanon_eq : canonSeg s = canonSeg x := canonSeg_eq_of_toEM_eq s x hs_em
+    rw [hxcanon] at hcanon_eq
+    rw [← hcanon_eq]
+    exact List.mem_map_of_mem _ hs_mem
+
+/-- **(A)-`sharedSelected`.** `sharedSelected` is the `onInterBoundary`-true part of the
+    shared-and-deduped candidate list `Dgen`. -/
+private theorem sharedSelected_eq_filter (G1 G2 : EvenGraph) :
+    EvenGraphIntersectionGenProofs.sharedSelected G1 G2 =
+      ((((EvenGraphIntersectionGenProofs.arr G1 G2).segments.map canonSeg).dedup).filter
+        (fun σ => decide (EvenGraphIntersectionGenProofs.IsShared G2 σ))).filter
+        (fun σ => decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ)) := by
+  unfold EvenGraphIntersectionGenProofs.sharedSelected
+  rw [List.filter_filter]
+  apply List.filter_congr
+  intro σ _
+  -- decide (P ∧ Q) = (decide Q && decide P)
+  by_cases hQ : EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ <;>
+    by_cases hP : EvenGraphIntersectionGenProofs.IsShared G2 σ <;>
+    simp [hP, hQ]
+
+/-- **(A)-`phantomDoubled`.** `phantomDoubled` is the doubled `¬onInterBoundary` part of `Dgen`. -/
+private theorem phantomDoubled_eq_filter (G1 G2 : EvenGraph) :
+    EvenGraphIntersectionGenProofs.phantomDoubled G1 G2 =
+      (((((EvenGraphIntersectionGenProofs.arr G1 G2).segments.map canonSeg).dedup).filter
+        (fun σ => decide (EvenGraphIntersectionGenProofs.IsShared G2 σ))).filter
+        (fun σ => ! decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ))).flatMap
+        (fun σ => [σ, σ]) := by
+  unfold EvenGraphIntersectionGenProofs.phantomDoubled
+  rw [List.filter_filter]
+  congr 1
+  apply List.filter_congr
+  intro σ _
+  by_cases hQ : EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ <;>
+    by_cases hP : EvenGraphIntersectionGenProofs.IsShared G2 σ <;>
+    simp [hP, hQ]
+
+/-- **Theorem 1 — shared-edge contribution permutation.** -/
+theorem sharedContribution_perm
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    List.Perm
+      (MultipolygonIntersectionAlgorithmImpl.sharedContribution m1 m2)
+      (EvenGraphIntersectionGenProofs.sharedSelected
+          (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg) ++
+        EvenGraphIntersectionGenProofs.phantomDoubled
+          (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg)) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  -- The deduped, shared candidate lists.
+  set Dimpl : List LineSegment :=
+    (dedupList ((refinedSegments' m1 m2).map canonSegImpl)).filter
+      (fun σ => isSharedBool σ m2) with hDimpl
+  set Dgen : List LineSegment :=
+    (((EvenGraphIntersectionGenProofs.arr G1 G2).segments.map canonSeg).dedup).filter
+      (fun σ => decide (EvenGraphIntersectionGenProofs.IsShared G2 σ)) with hDgen
+  -- The toEM-level perm between the refined segments and arr's segments.
+  have h_perm_em : List.Perm
+      ((refinedSegments' m1 m2).map LineSegment.toEndpointsMultiset)
+      ((EvenGraphIntersectionGenProofs.arr G1 G2).segments.map LineSegment.toEndpointsMultiset) :=
+    refinedSegments'_perm_arr m1 m2 h1_len h2_len h1_nondeg h2_nondeg
+  -- **(B)** Dimpl ~ Dgen.  Both Nodup, same membership.
+  -- Nodup.
+  have hDimpl_nodup : Dimpl.Nodup := (dedupList_nodup _).filter _
+  have hDgen_nodup : Dgen.Nodup := (List.nodup_dedup _).filter _
+  -- For x ∈ Dimpl or x ∈ Dgen: the "dedup membership" condition (canonical + toEM in arr).
+  -- Equality `canonSegImpl = canonSeg`.
+  have hmap_eq : (refinedSegments' m1 m2).map canonSegImpl =
+      (refinedSegments' m1 m2).map canonSeg := by
+    apply List.map_congr_left
+    intro σ _; exact canonSegImpl_eq_canonSeg σ
+  -- Same membership.
+  have hmem_same : ∀ x, x ∈ Dimpl ↔ x ∈ Dgen := by
+    intro x
+    rw [hDimpl, hDgen, List.mem_filter, List.mem_filter]
+    -- Dedup membership parts.
+    rw [dedupList_mem_iff, hmap_eq, mem_map_canonSeg_iff, List.mem_dedup, mem_map_canonSeg_iff]
+    -- Rewrite the toEM membership of refined segments to arr via the perm.
+    constructor
+    · rintro ⟨⟨hxc, hxem_ref⟩, hshb⟩
+      have hxem_arr := h_perm_em.mem_iff.mp hxem_ref
+      -- Recover σ0 for KEY 2.
+      obtain ⟨σ0, hσ0_mem, hx_eq⟩ := canon_mem_arr_eq_canonSeg G1 G2 x hxc hxem_arr
+      refine ⟨⟨hxc, hxem_arr⟩, ?_⟩
+      rw [hx_eq] at hshb ⊢
+      rw [← isSharedBool_eq_of_arr_canon m1 m2 h1_len h2_len h1_nondeg h2_nondeg σ0 hσ0_mem]
+      exact hshb
+    · rintro ⟨⟨hxc, hxem_arr⟩, hshd⟩
+      have hxem_ref := h_perm_em.mem_iff.mpr hxem_arr
+      obtain ⟨σ0, hσ0_mem, hx_eq⟩ := canon_mem_arr_eq_canonSeg G1 G2 x hxc hxem_arr
+      refine ⟨⟨hxc, hxem_ref⟩, ?_⟩
+      rw [hx_eq] at hshd ⊢
+      rw [isSharedBool_eq_of_arr_canon m1 m2 h1_len h2_len h1_nondeg h2_nondeg σ0 hσ0_mem]
+      exact hshd
+  have hB : Dimpl.Perm Dgen := perm_of_nodup_of_mem_iff hDimpl_nodup hDgen_nodup hmem_same
+  -- **(C)** On members of Dimpl, the onInterBoundaryBool test agrees with onInterBoundary.
+  -- Predicate: P_impl σ := onInterBoundaryBool σ m1 m2;  P_gen σ := decide (onInterBoundary G1 G2 σ).
+  have hC : ∀ σ ∈ Dimpl, onInterBoundaryBool σ m1 m2 =
+      decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ) := by
+    intro σ hσ
+    -- σ ∈ Dgen too; recover σ0 and the shared hypothesis.
+    have hσ_gen : σ ∈ Dgen := (hmem_same σ).mp hσ
+    rw [hDgen, List.mem_filter, List.mem_dedup] at hσ_gen
+    obtain ⟨hσ_in_map, hσ_shared_dec⟩ := hσ_gen
+    obtain ⟨σ0, hσ0_mem, hσ0_canon⟩ := List.mem_map.mp hσ_in_map
+    have hshared : EvenGraphIntersectionGenProofs.IsShared G2 σ0 := by
+      have : EvenGraphIntersectionGenProofs.IsShared G2 (canonSeg σ0) := by
+        rw [hσ0_canon]; exact of_decide_eq_true hσ_shared_dec
+      unfold EvenGraphIntersectionGenProofs.IsShared at this ⊢
+      rwa [EvenGraphIntersectionGenProofs.canonSeg_toSet] at this
+    rw [← hσ0_canon]
+    exact onInterBoundaryBool_eq m1 m2 h1_len h2_len h1_nondeg h2_nondeg σ0 hσ0_mem hshared
+  -- Assemble.
+  -- sharedContribution = Dimpl.flatMap (if onInterBoundaryBool · then [·] else [·,·]).
+  show (Dimpl.flatMap (fun σ => if onInterBoundaryBool σ m1 m2 then [σ] else [σ, σ])).Perm
+    (EvenGraphIntersectionGenProofs.sharedSelected G1 G2 ++
+      EvenGraphIntersectionGenProofs.phantomDoubled G1 G2)
+  -- (D): split into true singletons + doubled false part.
+  refine (flatMap_if_perm Dimpl (fun σ => onInterBoundaryBool σ m1 m2)).trans ?_
+  -- Rewrite the filter predicates on Dimpl to the gen predicates via (C).
+  have hfilt_true : Dimpl.filter (fun σ => onInterBoundaryBool σ m1 m2) =
+      Dimpl.filter (fun σ => decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ)) := by
+    apply List.filter_congr; intro σ hσ; exact hC σ hσ
+  have hfilt_false : Dimpl.filter (fun σ => ! onInterBoundaryBool σ m1 m2) =
+      Dimpl.filter (fun σ => ! decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ)) := by
+    apply List.filter_congr; intro σ hσ; rw [hC σ hσ]
+  rw [hfilt_true, hfilt_false]
+  -- Transport the two filters along Dimpl ~ Dgen.
+  have hp_true : (Dimpl.filter
+      (fun σ => decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ))).Perm
+    (Dgen.filter (fun σ => decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ))) :=
+    hB.filter _
+  have hp_false : (Dimpl.filter
+      (fun σ => ! decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ))).Perm
+    (Dgen.filter (fun σ => ! decide (EvenGraphIntersectionGenProofs.onInterBoundary G1 G2 σ))) :=
+    hB.filter _
+  refine (List.Perm.append hp_true (hp_false.flatMap_right _)).trans ?_
+  -- Now rewrite Dgen-filters to sharedSelected / phantomDoubled via (A).
+  rw [← sharedSelected_eq_filter G1 G2, ← phantomDoubled_eq_filter G1 G2]
+
+/-- **Theorem 2 — full assembly.** The runtime general intersection graph's segments, viewed as
+    endpoint multisets, are a permutation of the noncomputable `interGraph`'s segments. -/
+theorem intersectionGraphSegments'_perm_interGraph
+    (m1 m2 : Multipolygon)
+    (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
+    (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
+    (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
+    List.Perm
+      ((MultipolygonIntersectionAlgorithmImpl.intersectionGraphSegments' m1 m2).map
+        LineSegment.toEndpointsMultiset)
+      ((EvenGraphIntersectionGenProofs.interGraph
+        (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg)).segments.map
+        LineSegment.toEndpointsMultiset) := by
+  set G1 := m1.toEvenGraph h1_len h1_nondeg with hG1
+  set G2 := m2.toEvenGraph h2_len h2_nondeg with hG2
+  -- Transversal half 1.
+  have ht1 : List.Perm
+      ((selectInsideOther (refinedSegments' m1 m2) m2).map LineSegment.toEndpointsMultiset)
+      ((_root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G1 G2).segments
+        G2.interior).map LineSegment.toEndpointsMultiset) :=
+    selectInsideOther_refinedSegments'_perm_selectSegmentsInside_arr m1 m2
+      h1_len h2_len h1_nondeg h2_nondeg
+  -- Transversal half 2 (swap (m1,m2) → (m2,m1)).
+  have ht2 : List.Perm
+      ((selectInsideOther (refinedSegments' m2 m1) m1).map LineSegment.toEndpointsMultiset)
+      ((_root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G2 G1).segments
+        G1.interior).map LineSegment.toEndpointsMultiset) :=
+    selectInsideOther_refinedSegments'_perm_selectSegmentsInside_arr m2 m1
+      h2_len h1_len h2_nondeg h1_nondeg
+  -- Shared half (Theorem 1, mapped to toEM).
+  have hsh : List.Perm
+      ((sharedContribution m1 m2).map LineSegment.toEndpointsMultiset)
+      ((EvenGraphIntersectionGenProofs.sharedSelected G1 G2 ++
+        EvenGraphIntersectionGenProofs.phantomDoubled G1 G2).map
+        LineSegment.toEndpointsMultiset) :=
+    (sharedContribution_perm m1 m2 h1_len h2_len h1_nondeg h2_nondeg).map _
+  -- Expand both sides.
+  rw [EvenGraphIntersectionGenProofs.interGraph_segments G1 G2]
+  show ((selectInsideOther (refinedSegments' m1 m2) m2 ++
+      selectInsideOther (refinedSegments' m2 m1) m1) ++ sharedContribution m1 m2).map
+        LineSegment.toEndpointsMultiset ~
+      (((_root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G1 G2).segments
+          G2.interior ++
+        _root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G2 G1).segments
+          G1.interior) ++
+        EvenGraphIntersectionGenProofs.sharedSelected G1 G2) ++
+        EvenGraphIntersectionGenProofs.phantomDoubled G1 G2).map
+        LineSegment.toEndpointsMultiset
+  -- Distribute map over append.
+  simp only [List.map_append]
+  -- LHS = (t1 ++ t2) ++ shared;  RHS = ((T1 ++ T2) ++ sharedSelected) ++ phantomDoubled.
+  -- shared part: (sharedContribution).map ~ (sharedSelected ++ phantomDoubled).map.
+  rw [List.map_append] at hsh
+  -- Combine transversal halves.
+  have htrans : ((selectInsideOther (refinedSegments' m1 m2) m2).map
+      LineSegment.toEndpointsMultiset ++
+      (selectInsideOther (refinedSegments' m2 m1) m1).map LineSegment.toEndpointsMultiset).Perm
+    ((_root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G1 G2).segments
+        G2.interior).map LineSegment.toEndpointsMultiset ++
+      (_root_.selectSegmentsInside (EvenGraphIntersectionGenProofs.arr G2 G1).segments
+        G1.interior).map LineSegment.toEndpointsMultiset) := ht1.append ht2
+  -- Full LHS ~ (T1 ++ T2) ++ (sharedSelected ++ phantomDoubled).
+  have hfull := htrans.append hsh
+  refine hfull.trans ?_
+  -- Reassociate: both sides normalize to the same fully right-associated list.
+  simp only [List.append_assoc]
+  exact List.Perm.refl _
+
 /-- Each polygon produced by the algorithm is valid (length ≥ 2, segs non-degenerate). -/
 theorem multipolygonIntersectionAlgorithm_polys_valid
     (m1 m2 : Multipolygon)
     (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
-    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin12 : Set.Finite ((m1.toEvenGraph h1_len h1_nondeg).toBoundarySet ∩
-        (m2.toEvenGraph h2_len h2_nondeg).toBoundarySet)) :
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
     ∀ poly ∈ (multipolygonIntersectionAlgorithm m1 m2).polygons,
       poly.vertices.length ≥ 2 ∧ ∀ seg ∈ poly.segments, seg.p1 ≠ seg.p2 := by
   -- Get the even graph intersection
-  obtain ⟨h_even, _⟩ := evenGraphIntersection_isEven_and_interior_eq
-    (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg) h_fin12
+  obtain ⟨h_even, _⟩ := EvenGraphIntersectionGenProofs.interGraph_isEven_and_interior_eq
+    (m1.toEvenGraph h1_len h1_nondeg) (m2.toEvenGraph h2_len h2_nondeg)
   set Gint : EvenGraph :=
-    ⟨evenGraphIntersection (m1.toEvenGraph h1_len h1_nondeg)
-      (m2.toEvenGraph h2_len h2_nondeg) h_fin12, h_even⟩
+    ⟨EvenGraphIntersectionGenProofs.interGraph (m1.toEvenGraph h1_len h1_nondeg)
+      (m2.toEvenGraph h2_len h2_nondeg), h_even⟩
   -- Construction perm
-  have h_construction : (intersectionGraphSegments m1 m2).map
+  have h_construction : (intersectionGraphSegments' m1 m2).map
         LineSegment.toEndpointsMultiset ~
       Gint.segments.map LineSegment.toEndpointsMultiset :=
-    intersectionGraphSegments_perm_evenGraphIntersection m1 m2 h1_len h2_len
-      h1_nondeg h2_nondeg h_fin12
+    intersectionGraphSegments'_perm_interGraph m1 m2 h1_len h2_len
+      h1_nondeg h2_nondeg
   -- Derive non-degeneracy for intersectionGraphSegments via construction Equiv.
-  have h_nondeg : ∀ s ∈ intersectionGraphSegments m1 m2, s.p1 ≠ s.p2 := by
+  have h_nondeg : ∀ s ∈ intersectionGraphSegments' m1 m2, s.p1 ≠ s.p2 := by
     intro s hs h_deg
     have hs_in_image : s.toEndpointsMultiset ∈
-        (intersectionGraphSegments m1 m2).map LineSegment.toEndpointsMultiset :=
+        (intersectionGraphSegments' m1 m2).map LineSegment.toEndpointsMultiset :=
       List.mem_map_of_mem _ hs
     have hs_in_gint : s.toEndpointsMultiset ∈
         Gint.segments.map LineSegment.toEndpointsMultiset :=
@@ -5661,7 +7599,7 @@ theorem multipolygonIntersectionAlgorithm_polys_valid
     rw [show (decide (s.p1 = v ∨ s.p2 = v)) = decide (v = s.p1 ∨ v = s.p2) from
       decide_eq_decide.mpr h_eq]
   have h_even_intersection : ∀ v, Even
-      (EvenGraphDecompositionImpl.incCount (intersectionGraphSegments m1 m2) v) := by
+      (EvenGraphDecompositionImpl.incCount (intersectionGraphSegments' m1 m2) v) := by
     intro v
     rw [h_inc_eq_general]
     rw [h_construction.countP_eq]
@@ -5670,12 +7608,12 @@ theorem multipolygonIntersectionAlgorithm_polys_valid
   -- Apply decomposeListFuel_polys_valid.
   have h_eq_decomp : (multipolygonIntersectionAlgorithm m1 m2).polygons =
       EvenGraphDecompositionImpl.decomposeListFuel
-        (intersectionGraphSegments m1 m2).length
-        (intersectionGraphSegments m1 m2) := rfl
+        (intersectionGraphSegments' m1 m2).length
+        (intersectionGraphSegments' m1 m2) := rfl
   rw [h_eq_decomp]
   exact EvenGraphDecompositionProofs.decomposeListFuel_polys_valid
-    (intersectionGraphSegments m1 m2).length
-    (intersectionGraphSegments m1 m2) (Nat.le_refl _) h_nondeg h_even_intersection
+    (intersectionGraphSegments' m1 m2).length
+    (intersectionGraphSegments' m1 m2) (Nat.le_refl _) h_nondeg h_even_intersection
 
 /-- Helper: the segments of `combine (polys.attach.map (fun ⟨p, hp⟩ =>
     p.toEvenGraph ...))` equal `polys.flatMap Polygon.segments`. -/
@@ -5721,38 +7659,36 @@ theorem multipolygonIntersectionAlgorithm_combine_equiv
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
     (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin12 : Set.Finite ((m1.toEvenGraph h1_len h1_nondeg).toBoundarySet ∩
-        (m2.toEvenGraph h2_len h2_nondeg).toBoundarySet))
-    (h_even : (evenGraphIntersection (m1.toEvenGraph h1_len h1_nondeg)
-        (m2.toEvenGraph h2_len h2_nondeg) h_fin12).IsEven)
+    (h_even : (EvenGraphIntersectionGenProofs.interGraph (m1.toEvenGraph h1_len h1_nondeg)
+        (m2.toEvenGraph h2_len h2_nondeg)).IsEven)
     (h_polys_valid : ∀ poly ∈ (multipolygonIntersectionAlgorithm m1 m2).polygons,
         poly.vertices.length ≥ 2 ∧ ∀ seg ∈ poly.segments, seg.p1 ≠ seg.p2) :
     (EvenGraph.combine ((multipolygonIntersectionAlgorithm m1 m2).polygons.attach.map
       (fun ⟨p, hp⟩ => p.toEvenGraph (h_polys_valid p hp).1
         (h_polys_valid p hp).2))).Equiv
-    ⟨evenGraphIntersection (m1.toEvenGraph h1_len h1_nondeg)
-      (m2.toEvenGraph h2_len h2_nondeg) h_fin12, h_even⟩ := by
+    ⟨EvenGraphIntersectionGenProofs.interGraph (m1.toEvenGraph h1_len h1_nondeg)
+      (m2.toEvenGraph h2_len h2_nondeg), h_even⟩ := by
   show _ ~ _
   rw [combine_attach_segments _ h_polys_valid]
   -- Goal: (polys.flatMap Polygon.segments).map LineSegment.toEndpointsMultiset ~ ...
-  -- polys = decomposeSegments (intersectionGraphSegments m1 m2)
-  --       = decomposeList (intersectionGraphSegments m1 m2)
-  show ((decomposeSegments (intersectionGraphSegments m1 m2)).flatMap
+  -- polys = decomposeSegments (intersectionGraphSegments' m1 m2)
+  --       = decomposeList (intersectionGraphSegments' m1 m2)
+  show ((decomposeSegments (intersectionGraphSegments' m1 m2)).flatMap
         Polygon.segments).map LineSegment.toEndpointsMultiset ~ _
   -- Construction Equiv at the multiset-of-endpoint-multisets level.
   set Gint : EvenGraph :=
-    ⟨evenGraphIntersection (m1.toEvenGraph h1_len h1_nondeg)
-      (m2.toEvenGraph h2_len h2_nondeg) h_fin12, h_even⟩
-  have h_construction : (intersectionGraphSegments m1 m2).map
+    ⟨EvenGraphIntersectionGenProofs.interGraph (m1.toEvenGraph h1_len h1_nondeg)
+      (m2.toEvenGraph h2_len h2_nondeg), h_even⟩
+  have h_construction : (intersectionGraphSegments' m1 m2).map
         LineSegment.toEndpointsMultiset ~
       Gint.segments.map LineSegment.toEndpointsMultiset :=
-    intersectionGraphSegments_perm_evenGraphIntersection m1 m2 h1_len h2_len
-      h1_nondeg h2_nondeg h_fin12
+    intersectionGraphSegments'_perm_interGraph m1 m2 h1_len h2_len
+      h1_nondeg h2_nondeg
   -- Derive non-degeneracy for intersectionGraphSegments via construction Equiv.
-  have h_nondeg : ∀ s ∈ intersectionGraphSegments m1 m2, s.p1 ≠ s.p2 := by
+  have h_nondeg : ∀ s ∈ intersectionGraphSegments' m1 m2, s.p1 ≠ s.p2 := by
     intro s hs h_deg
     have hs_in_image : s.toEndpointsMultiset ∈
-        (intersectionGraphSegments m1 m2).map LineSegment.toEndpointsMultiset :=
+        (intersectionGraphSegments' m1 m2).map LineSegment.toEndpointsMultiset :=
       List.mem_map_of_mem _ hs
     have hs_in_gint : s.toEndpointsMultiset ∈
         Gint.segments.map LineSegment.toEndpointsMultiset :=
@@ -5789,7 +7725,7 @@ theorem multipolygonIntersectionAlgorithm_combine_equiv
     rw [show (decide (s.p1 = v ∨ s.p2 = v)) = decide (v = s.p1 ∨ v = s.p2) from
       decide_eq_decide.mpr h_eq]
   have h_even_intersection : ∀ v, Even
-      (EvenGraphDecompositionImpl.incCount (intersectionGraphSegments m1 m2) v) := by
+      (EvenGraphDecompositionImpl.incCount (intersectionGraphSegments' m1 m2) v) := by
     intro v
     rw [h_inc_eq_general]
     rw [h_construction.countP_eq]
@@ -5797,13 +7733,13 @@ theorem multipolygonIntersectionAlgorithm_combine_equiv
     exact h_even v
   -- Apply decomposeListFuel_perm.
   have h_decomp_perm := EvenGraphDecompositionProofs.decomposeListFuel_perm
-    (intersectionGraphSegments m1 m2).length
-    (intersectionGraphSegments m1 m2) (Nat.le_refl _) h_nondeg h_even_intersection
+    (intersectionGraphSegments' m1 m2).length
+    (intersectionGraphSegments' m1 m2) (Nat.le_refl _) h_nondeg h_even_intersection
   -- decomposeSegments = decomposeList = decomposeListFuel ...
-  have h_eq_decomp : decomposeSegments (intersectionGraphSegments m1 m2) =
+  have h_eq_decomp : decomposeSegments (intersectionGraphSegments' m1 m2) =
       EvenGraphDecompositionImpl.decomposeListFuel
-        (intersectionGraphSegments m1 m2).length
-        (intersectionGraphSegments m1 m2) := rfl
+        (intersectionGraphSegments' m1 m2).length
+        (intersectionGraphSegments' m1 m2) := rfl
   rw [h_eq_decomp]
   exact (h_decomp_perm.symm).trans h_construction
 
@@ -5815,33 +7751,26 @@ theorem multipolygonIntersectionAlgorithm_correct
     (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
-    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin : Set.Finite (m1.toBoundarySet ∩ m2.toBoundarySet)) :
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
     m1.interior ∩ m2.interior =
       (multipolygonIntersectionAlgorithm m1 m2).interior := by
   set G1 : EvenGraph := m1.toEvenGraph h1_len h1_nondeg with hG1_def
   set G2 : EvenGraph := m2.toEvenGraph h2_len h2_nondeg with hG2_def
-  have hb1 : G1.toBoundarySet = m1.toBoundarySet :=
-    Multipolygon.toEvenGraph_toBoundarySet_eq m1 h1_len h1_nondeg
-  have hb2 : G2.toBoundarySet = m2.toBoundarySet :=
-    Multipolygon.toEvenGraph_toBoundarySet_eq m2 h2_len h2_nondeg
   have hi1 : G1.interior = m1.interior :=
     Multipolygon.toEvenGraph_interior_eq m1 h1_len h1_nondeg
   have hi2 : G2.interior = m2.interior :=
     Multipolygon.toEvenGraph_interior_eq m2 h2_len h2_nondeg
-  have h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet) := by
-    rw [hb1, hb2]; exact h_fin
   obtain ⟨h_even, h_interior_eq⟩ :=
-    evenGraphIntersection_isEven_and_interior_eq G1 G2 h_fin12
+    EvenGraphIntersectionGenProofs.interGraph_isEven_and_interior_eq G1 G2
   set Gint : EvenGraph :=
-    ⟨evenGraphIntersection G1 G2 h_fin12, h_even⟩ with hGint_def
+    ⟨EvenGraphIntersectionGenProofs.interGraph G1 G2, h_even⟩ with hGint_def
   have hGint_int : Gint.interior = m1.interior ∩ m2.interior := by
     rw [h_interior_eq, hi1, hi2]
   -- Validity of algorithm output polygons.
   have h_polys_valid : ∀ poly ∈ (multipolygonIntersectionAlgorithm m1 m2).polygons,
       poly.vertices.length ≥ 2 ∧ ∀ seg ∈ poly.segments, seg.p1 ≠ seg.p2 :=
     multipolygonIntersectionAlgorithm_polys_valid m1 m2 h1_len h2_len
-      h1_nondeg h2_nondeg h_fin12
+      h1_nondeg h2_nondeg
   -- Convert h_polys_valid into per-polygon length + flat nondeg hypotheses.
   set mout : Multipolygon := multipolygonIntersectionAlgorithm m1 m2 with hmout_def
   have hmout_len : ∀ poly ∈ mout.polygons, poly.vertices.length ≥ 2 :=
@@ -5857,7 +7786,7 @@ theorem multipolygonIntersectionAlgorithm_correct
   -- Combine of polyGraphs is Equiv to Gint.
   have h_total_equiv : (EvenGraph.combine polyGraphs).Equiv Gint :=
     multipolygonIntersectionAlgorithm_combine_equiv m1 m2 h1_len h2_len
-      h1_nondeg h2_nondeg h_fin12 h_even h_polys_valid
+      h1_nondeg h2_nondeg h_even h_polys_valid
   have h_combine_int : (EvenGraph.combine polyGraphs).interior =
       m1.interior ∩ m2.interior := by
     rw [h_total_equiv.interior_eq, hGint_int]
@@ -5908,5 +7837,7 @@ theorem multipolygonIntersectionAlgorithm_correct
   rw [Multipolygon.interior_eq_symmDiffAll_sdiff_boundary mout hmout_len hmout_nondeg,
       ← h_combine_int, EvenGraph.combine_interior_eq_symmDiff_sdiff_boundary,
       h_combine_bd_set, h_map_int]
+
+end OnInterBoundaryBool
 
 end MultipolygonIntersectionAlgorithmProofs

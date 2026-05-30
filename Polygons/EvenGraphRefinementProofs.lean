@@ -44,7 +44,7 @@ namespace EvenGraphRefinementProofs
 /-! ### Segment splitting for graphs -/
 
 /-- Split a segment at a point: the union of the two sub-segments equals the original. -/
-private theorem segment_split (a b pt : Vector2D)
+theorem segment_split (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet) :
     (LineSegment.mk a pt).toSet ∪ (LineSegment.mk pt b).toSet =
     (LineSegment.mk a b).toSet := by
@@ -82,7 +82,7 @@ private theorem segment_split (a b pt : Vector2D)
 /-! ### Replace a segment in a list -/
 
 /-- Replace the first occurrence of `seg` in a list with `seg1` and `seg2`. -/
-private def replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment) :
+def replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment) :
     List LineSegment :=
   match segs with
   | [] => []
@@ -92,7 +92,7 @@ private def replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegmen
 
 /-- Any element of `replaceSegment segs seg seg1 seg2` is `seg1`, `seg2`, or
     an element of `segs`. -/
-private lemma mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
+lemma mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
     (s : LineSegment) (h : s ∈ replaceSegment segs seg seg1 seg2) :
     s = seg1 ∨ s = seg2 ∨ s ∈ segs := by
   induction segs with
@@ -114,7 +114,7 @@ private lemma mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : Line
         · exact Or.inr (Or.inr (List.mem_cons.mpr (Or.inr h3)))
 
 /-- If `s ∈ segs` and `s ≠ seg`, then `s ∈ replaceSegment segs seg seg1 seg2`. -/
-private lemma replaceSegment_of_mem_ne (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
+lemma replaceSegment_of_mem_ne (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
     (s : LineSegment) (h_mem : s ∈ segs) (h_ne : s ≠ seg) :
     s ∈ replaceSegment segs seg seg1 seg2 := by
   induction segs with
@@ -133,7 +133,7 @@ private lemma replaceSegment_of_mem_ne (segs : List LineSegment) (seg seg1 seg2 
       · exact Or.inr (ih hmem)
 
 /-- `seg1` is in `replaceSegment segs seg seg1 seg2` when `seg ∈ segs`. -/
-private lemma seg1_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
+lemma seg1_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
     (h_mem : seg ∈ segs) : seg1 ∈ replaceSegment segs seg seg1 seg2 := by
   induction segs with
   | nil => simp at h_mem
@@ -147,7 +147,7 @@ private lemma seg1_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 :
       · exact Or.inr (ih hmem)
 
 /-- `seg2` is in `replaceSegment segs seg seg1 seg2` when `seg ∈ segs`. -/
-private lemma seg2_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
+lemma seg2_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
     (h_mem : seg ∈ segs) : seg2 ∈ replaceSegment segs seg seg1 seg2 := by
   induction segs with
   | nil => simp at h_mem
@@ -161,7 +161,7 @@ private lemma seg2_mem_replaceSegment (segs : List LineSegment) (seg seg1 seg2 :
       · exact Or.inr (ih hmem)
 
 /-- The `countP` relation for `replaceSegment`. -/
-private lemma replaceSegment_countP_relate (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
+lemma replaceSegment_countP_relate (segs : List LineSegment) (seg seg1 seg2 : LineSegment)
     (h_mem : seg ∈ segs) (p : LineSegment → Bool) :
     (replaceSegment segs seg seg1 seg2).countP p + (if p seg then 1 else 0) =
     segs.countP p + (if p seg1 then 1 else 0) + (if p seg2 then 1 else 0) := by
@@ -182,7 +182,7 @@ private lemma replaceSegment_countP_relate (segs : List LineSegment) (seg seg1 s
 
 /-- Boundary set of replaceSegment equals original when the replacement
     covers the same set. -/
-private lemma replaceSegment_boundary_eq (segs : List LineSegment)
+lemma replaceSegment_boundary_eq (segs : List LineSegment)
     (seg seg1 seg2 : LineSegment)
     (h_mem : seg ∈ segs) (h_split : seg1.toSet ∪ seg2.toSet = seg.toSet) :
     { p | ∃ s ∈ replaceSegment segs seg seg1 seg2, p ∈ s.toSet } =
@@ -207,7 +207,7 @@ private lemma replaceSegment_boundary_eq (segs : List LineSegment)
 /-! ### Ray intersection and segment splitting -/
 
 /-- Ray hits seg(a,b) iff it hits seg(a,pt) or seg(pt,b), when pt ∈ seg(a,b). -/
-private lemma segment_split_rayIntersects (r : Ray) (a b pt : Vector2D)
+lemma segment_split_rayIntersects (r : Ray) (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet) :
     rayIntersectsSegment r ⟨a, b⟩ ↔
     (rayIntersectsSegment r ⟨a, pt⟩ ∨ rayIntersectsSegment r ⟨pt, b⟩) := by
@@ -224,7 +224,7 @@ private lemma segment_split_rayIntersects (r : Ray) (a b pt : Vector2D)
     · exact ⟨q, hq_ray, h_union ▸ Set.mem_union_right _ hq_seg⟩
 
 /-- A ray can't hit both sub-segments if it avoids the split point. -/
-private lemma ray_not_both_sub_segments (r : Ray) (a b pt : Vector2D)
+lemma ray_not_both_sub_segments (r : Ray) (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet)
     (h_avoids : pt ∉ r.toSet) :
     ¬(rayIntersectsSegment r ⟨a, pt⟩ ∧ rayIntersectsSegment r ⟨pt, b⟩) := by
@@ -269,7 +269,7 @@ private lemma ray_not_both_sub_segments (r : Ray) (a b pt : Vector2D)
          by rw [hcomb_y', hq1y_r, hq2y_r]; ring⟩
 
 /-- If ray avoids pt, the boolean count for sub-segments equals that for the original segment. -/
-private lemma segment_split_xor (r : Ray) (a b pt : Vector2D)
+lemma segment_split_xor (r : Ray) (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet)
     (h_avoids : pt ∉ r.toSet) :
     (if decide (rayIntersectsSegment r ⟨a, pt⟩) then 1 else 0) +
@@ -283,7 +283,7 @@ private lemma segment_split_xor (r : Ray) (a b pt : Vector2D)
 
 /-- `intersectionRayGraphSegmentsNumber` is preserved by `replaceSegment` when
     the ray avoids the split point. -/
-private lemma replaceSegment_crossing_eq (r : Ray) (segs : List LineSegment)
+lemma replaceSegment_crossing_eq (r : Ray) (segs : List LineSegment)
     (seg : LineSegment) (pt : Vector2D)
     (h_mem : seg ∈ segs)
     (h_pt : pt ∈ seg.toSet)
@@ -302,7 +302,7 @@ private lemma replaceSegment_crossing_eq (r : Ray) (segs : List LineSegment)
 
 /-- Given a point p not in a list of vertices, there exists a ray from p
     that avoids all vertices in the list. -/
-private lemma exists_ray_avoiding_list (p : Vector2D) (verts : List Vector2D)
+lemma exists_ray_avoiding_list (p : Vector2D) (verts : List Vector2D)
     (h_not_vert : ∀ v ∈ verts, v ≠ p) :
     ∃ r : Ray, r.origin = p ∧ r.toSet ∩ { q | q ∈ verts } = ∅ := by
   have : Infinite ℚ := Infinite.of_injective (fun n : ℕ => (n : ℚ)) Nat.cast_injective
@@ -437,7 +437,7 @@ theorem graphRefinement_segments_eq
 
 /-- Membership in the vertex list of the refined graph: a point is a vertex of the
     refinement iff it is `pt` or a vertex of the original graph. -/
-private lemma graphRefinement_mem_toVertices
+lemma graphRefinement_mem_toVertices
     (G : EvenGraph) (seg : LineSegment) (pt : Vector2D)
     (h_seg : seg ∈ G.segments) (h_pt : pt ∈ seg.toSet) (v : Vector2D) :
     v ∈ (graphRefinement G seg pt h_seg h_pt).toVertices ↔
@@ -488,7 +488,7 @@ private lemma graphRefinement_mem_toVertices
 
 /-- The vertex set of the refined graph equals the insertion of `pt` into the
     original vertex set. -/
-private lemma graphRefinement_toVertexSet_eq
+lemma graphRefinement_toVertexSet_eq
     (G : EvenGraph) (seg : LineSegment) (pt : Vector2D)
     (h_seg : seg ∈ G.segments) (h_pt : pt ∈ seg.toSet) :
     (graphRefinement G seg pt h_seg h_pt).toVertexSet =
@@ -627,7 +627,7 @@ theorem refinement_interior_eq
 
 /-- A point is not in the interior of a sub-segment if it is an endpoint of the
     parent segment that is beyond the split point. -/
-private lemma sub_segment_far_endpoint_not_mem (a b pt : Vector2D)
+lemma sub_segment_far_endpoint_not_mem (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet)
     (h_ne_a : pt ≠ a) (h_ne_b : pt ≠ b) (h_ab : a ≠ b) :
     b ∉ (LineSegment.mk a pt).toSet := by
@@ -661,7 +661,7 @@ private lemma sub_segment_far_endpoint_not_mem (a b pt : Vector2D)
   exact h_ab (Vector2D.ext hbx_a.symm hby_a.symm)
 
 /-- Similarly, `a ∉ ⟨pt, b⟩` when pt is strictly inside ⟨a,b⟩. -/
-private lemma sub_segment_near_endpoint_not_mem (a b pt : Vector2D)
+lemma sub_segment_near_endpoint_not_mem (a b pt : Vector2D)
     (h_pt : pt ∈ (LineSegment.mk a b).toSet)
     (h_ne_a : pt ≠ a) (h_ne_b : pt ≠ b) (h_ab : a ≠ b) :
     a ∉ (LineSegment.mk pt b).toSet := by
@@ -699,7 +699,7 @@ private lemma sub_segment_near_endpoint_not_mem (a b pt : Vector2D)
 /-- After `graphRefinement` at `pt` on `seg`, if `q ≠ pt` was an endpoint of all
     G-segments containing it, it is still an endpoint of all refined-graph segments
     containing it. -/
-private lemma graphRefinement_preserves_endpoint
+lemma graphRefinement_preserves_endpoint
     (G : EvenGraph) (seg : LineSegment) (pt q : Vector2D)
     (h_seg : seg ∈ G.segments) (h_pt : pt ∈ seg.toSet)
     (h_q_ep : ∀ s ∈ G.segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2) :
@@ -740,12 +740,12 @@ private lemma graphRefinement_preserves_endpoint
       exact h_q_ep s hs_orig h_q_s
 
 /-- The number of segments of G that strictly contain pt (pt is not an endpoint). -/
-private def strictPtCount (G : EvenGraph) (pt : Vector2D) : ℕ :=
+def strictPtCount (G : EvenGraph) (pt : Vector2D) : ℕ :=
   G.segments.countP (fun s => decide (pt ∈ s.toSet) && !decide (pt = s.p1 ∨ pt = s.p2))
 
 /-- Refine G at pt with a fuel bound (structurally recursive on Nat).
     When fuel = 0, return G unchanged. Each step decreases strictPtCount. -/
-private def refineAllPtBounded : ℕ → EvenGraph → Vector2D → EvenGraph
+def refineAllPtBounded : ℕ → EvenGraph → Vector2D → EvenGraph
   | 0, G, _ => G
   | n + 1, G, pt =>
     match h_find : G.segments.find? (fun s =>
@@ -759,7 +759,7 @@ private def refineAllPtBounded : ℕ → EvenGraph → Vector2D → EvenGraph
       refineAllPtBounded n (graphRefinement G seg pt h_seg h_pt) pt
 
 /-- Helper: strictPtCount strictly decreases after one refinement step. -/
-private lemma strictPtCount_decreases (G : EvenGraph) (pt : Vector2D)
+lemma strictPtCount_decreases (G : EvenGraph) (pt : Vector2D)
     (seg : LineSegment)
     (h_find : G.segments.find? (fun s => decide (pt ∈ s.toSet) && !decide (pt = s.p1 ∨ pt = s.p2)) = some seg)
     (h_seg : seg ∈ G.segments)
@@ -784,14 +784,14 @@ private lemma strictPtCount_decreases (G : EvenGraph) (pt : Vector2D)
   omega
 
 /-- Refine G at pt until every segment containing pt has pt as an endpoint. -/
-private def refineAllPt (G : EvenGraph) (pt : Vector2D) : EvenGraph :=
+def refineAllPt (G : EvenGraph) (pt : Vector2D) : EvenGraph :=
   refineAllPtBounded (strictPtCount G pt) G pt
 
 /-- For a point `pt` on EXACTLY ONE segment `seg` of `G` (in interior, not endpoint),
     `refineAllPt G pt` replaces `seg` with two halves `⟨seg.p1, pt⟩, ⟨pt, seg.p2⟩`.
     The hypothesis `h_count_one` ensures `seg` appears uniquely in the list,
     so `strictPtCount G pt = 1`. -/
-private theorem refineAllPt_segments_unique_seg
+theorem refineAllPt_segments_unique_seg
     (G : EvenGraph) (pt : Vector2D) (seg : LineSegment)
     (h_seg : seg ∈ G.segments)
     (h_pt : pt ∈ seg.toSet)
@@ -861,7 +861,7 @@ private theorem refineAllPt_segments_unique_seg
 /-- The flatMap function that splits a segment containing `pt` strictly in its
     interior into its two halves' endpoint-multisets, leaving other segments
     represented by their own endpoint-multiset. -/
-private def splitFlatMapFn (pt : Vector2D) : LineSegment → List (Multiset Vector2D) :=
+def splitFlatMapFn (pt : Vector2D) : LineSegment → List (Multiset Vector2D) :=
   fun s =>
     if (pt ∈ s.toSet ∧ pt ≠ s.p1 ∧ pt ≠ s.p2) then
       [(⟨s.p1, pt⟩ : LineSegment).toEndpointsMultiset,
@@ -871,7 +871,7 @@ private def splitFlatMapFn (pt : Vector2D) : LineSegment → List (Multiset Vect
 
 /-- When no segment of `segs` strictly contains `pt`, the flatMap collapses
     to `map toEndpointsMultiset`. -/
-private lemma splitFlatMapFn_no_split (pt : Vector2D) (segs : List LineSegment)
+lemma splitFlatMapFn_no_split (pt : Vector2D) (segs : List LineSegment)
     (h_all : ∀ s ∈ segs, ¬ (pt ∈ s.toSet ∧ pt ≠ s.p1 ∧ pt ≠ s.p2)) :
     segs.flatMap (splitFlatMapFn pt) =
     segs.map LineSegment.toEndpointsMultiset := by
@@ -888,7 +888,7 @@ private lemma splitFlatMapFn_no_split (pt : Vector2D) (segs : List LineSegment)
 
 /-- Evaluation of `splitFlatMapFn pt` on the first half `⟨seg.p1, pt⟩`:
     the predicate fails since `pt` is now `p2`, so the result is the singleton. -/
-private lemma splitFlatMapFn_left_half (pt p1 : Vector2D) :
+lemma splitFlatMapFn_left_half (pt p1 : Vector2D) :
     splitFlatMapFn pt ⟨p1, pt⟩ =
     [(⟨p1, pt⟩ : LineSegment).toEndpointsMultiset] := by
   unfold splitFlatMapFn
@@ -901,7 +901,7 @@ private lemma splitFlatMapFn_left_half (pt p1 : Vector2D) :
 
 /-- Evaluation of `splitFlatMapFn pt` on the second half `⟨pt, seg.p2⟩`:
     the predicate fails since `pt` is now `p1`, so the result is the singleton. -/
-private lemma splitFlatMapFn_right_half (pt p2 : Vector2D) :
+lemma splitFlatMapFn_right_half (pt p2 : Vector2D) :
     splitFlatMapFn pt ⟨pt, p2⟩ =
     [(⟨pt, p2⟩ : LineSegment).toEndpointsMultiset] := by
   unfold splitFlatMapFn
@@ -913,7 +913,7 @@ private lemma splitFlatMapFn_right_half (pt p2 : Vector2D) :
   rw [if_neg h]
 
 /-- Evaluation of `splitFlatMapFn pt` on a segment `seg` strictly containing `pt`. -/
-private lemma splitFlatMapFn_seg_pos (pt : Vector2D) (seg : LineSegment)
+lemma splitFlatMapFn_seg_pos (pt : Vector2D) (seg : LineSegment)
     (h_pt : pt ∈ seg.toSet) (h_ne1 : pt ≠ seg.p1) (h_ne2 : pt ≠ seg.p2) :
     splitFlatMapFn pt seg =
     [(⟨seg.p1, pt⟩ : LineSegment).toEndpointsMultiset,
@@ -924,7 +924,7 @@ private lemma splitFlatMapFn_seg_pos (pt : Vector2D) (seg : LineSegment)
 /-- `replaceSegment` of the segment list, when flat-mapped with `splitFlatMapFn`,
     equals the original list flat-mapped with the same function — provided `seg`
     strictly contains `pt`. -/
-private lemma replaceSegment_flatMap_eq (segs : List LineSegment) (seg : LineSegment)
+lemma replaceSegment_flatMap_eq (segs : List LineSegment) (seg : LineSegment)
     (pt : Vector2D) (h_mem : seg ∈ segs)
     (h_pt : pt ∈ seg.toSet) (h_ne1 : pt ≠ seg.p1) (h_ne2 : pt ≠ seg.p2) :
     (replaceSegment segs seg ⟨seg.p1, pt⟩ ⟨pt, seg.p2⟩).flatMap (splitFlatMapFn pt) =
@@ -948,7 +948,7 @@ private lemma replaceSegment_flatMap_eq (segs : List LineSegment) (seg : LineSeg
 
 /-- Helper: characterization of `refineAllPtBounded` segments as a multiset
     perm with respect to a flatMap that splits segments containing `pt`. -/
-private lemma refineAllPtBounded_segments_perm
+lemma refineAllPtBounded_segments_perm
     (n : ℕ) (G : EvenGraph) (pt : Vector2D)
     (h_n : strictPtCount G pt ≤ n) :
     List.Perm
@@ -1016,7 +1016,7 @@ private lemma refineAllPtBounded_segments_perm
     endpoint pairs, equal what you get by replacing each segment of `G`
     that contains `pt` strictly in its interior with the two halves
     `⟨s.p1, pt⟩` and `⟨pt, s.p2⟩`, leaving other segments unchanged. -/
-private theorem refineAllPt_segments_perm (G : EvenGraph) (pt : Vector2D) :
+theorem refineAllPt_segments_perm (G : EvenGraph) (pt : Vector2D) :
     List.Perm
       ((refineAllPt G pt).segments.map LineSegment.toEndpointsMultiset)
       (G.segments.flatMap (fun s =>
@@ -1030,7 +1030,7 @@ private theorem refineAllPt_segments_perm (G : EvenGraph) (pt : Vector2D) :
   unfold splitFlatMapFn at h
   exact h
 
-private lemma refineAllPtBounded_boundary_eq (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPtBounded_boundary_eq (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
     (refineAllPtBounded n G pt).toBoundarySet = G.toBoundarySet := by
   induction n generalizing G with
   | zero => simp only [refineAllPtBounded]
@@ -1046,7 +1046,7 @@ private lemma refineAllPtBounded_boundary_eq (n : ℕ) (G : EvenGraph) (pt : Vec
       rw [ih, refinement_boundary_eq]
 
 /-- `refineAllPtBounded` preserves the interior for any fuel. -/
-private lemma refineAllPtBounded_interior_eq (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPtBounded_interior_eq (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
     (refineAllPtBounded n G pt).interior = G.interior := by
   induction n generalizing G with
   | zero => simp only [refineAllPtBounded]
@@ -1063,7 +1063,7 @@ private lemma refineAllPtBounded_interior_eq (n : ℕ) (G : EvenGraph) (pt : Vec
 
 /-- After `refineAllPtBounded n G pt` with n ≥ strictPtCount G pt,
     pt is an endpoint of every segment containing it. -/
-private lemma refineAllPtBounded_pt_endpoint (n : ℕ) (G : EvenGraph) (pt : Vector2D)
+lemma refineAllPtBounded_pt_endpoint (n : ℕ) (G : EvenGraph) (pt : Vector2D)
     (h_n : strictPtCount G pt ≤ n) :
     ∀ s ∈ (refineAllPtBounded n G pt).segments, pt ∈ s.toSet → pt = s.p1 ∨ pt = s.p2 := by
   induction n generalizing G with
@@ -1099,7 +1099,7 @@ private lemma refineAllPtBounded_pt_endpoint (n : ℕ) (G : EvenGraph) (pt : Vec
       exact ih _ h_n'
 
 /-- `refineAllPtBounded` preserves the endpoint property for a different point q. -/
-private lemma refineAllPtBounded_preserves_endpoint (n : ℕ) (G : EvenGraph) (pt q : Vector2D)
+lemma refineAllPtBounded_preserves_endpoint (n : ℕ) (G : EvenGraph) (pt q : Vector2D)
     (h_q_ep : ∀ s ∈ G.segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2) :
     ∀ s ∈ (refineAllPtBounded n G pt).segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2 := by
   induction n generalizing G with
@@ -1118,7 +1118,7 @@ private lemma refineAllPtBounded_preserves_endpoint (n : ℕ) (G : EvenGraph) (p
 /-- Structural form of segments in `refineAllPtBounded`: every segment of the
     result is either a segment of the original graph (unchanged) or one of the
     two halves obtained by splitting some original segment at `pt`. -/
-private lemma refineAllPtBounded_segment_form (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPtBounded_segment_form (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
     ∀ s' ∈ (refineAllPtBounded n G pt).segments,
       ∃ s ∈ G.segments,
         s' = s ∨
@@ -1200,7 +1200,7 @@ private lemma refineAllPtBounded_segment_form (n : ℕ) (G : EvenGraph) (pt : Ve
         · exact Or.inr (Or.inr ⟨h_eq, h_pt_in_s_1, h_pt_ne_s_1_p1, h_pt_ne_s_1_p2⟩)
 
 /-- The "front-half" sub-segment is contained in the original segment. -/
-private lemma subseg_p1_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ s.toSet) :
+lemma subseg_p1_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ s.toSet) :
     (LineSegment.mk s.p1 pt).toSet ⊆ s.toSet := by
   intro x hx
   have h_split := segment_split s.p1 s.p2 pt h_pt
@@ -1210,7 +1210,7 @@ private lemma subseg_p1_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ 
   exact hx_union
 
 /-- The "back-half" sub-segment is contained in the original segment. -/
-private lemma subseg_p2_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ s.toSet) :
+lemma subseg_p2_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ s.toSet) :
     (LineSegment.mk pt s.p2).toSet ⊆ s.toSet := by
   intro x hx
   have h_split := segment_split s.p1 s.p2 pt h_pt
@@ -1220,7 +1220,7 @@ private lemma subseg_p2_subset (s : LineSegment) (pt : Vector2D) (h_pt : pt ∈ 
   exact hx_union
 
 /-- Structural form of segments in `refineAllPt`. -/
-private lemma refineAllPt_segment_form (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPt_segment_form (G : EvenGraph) (pt : Vector2D) :
     ∀ s' ∈ (refineAllPt G pt).segments,
       ∃ s ∈ G.segments,
         s' = s ∨
@@ -1228,21 +1228,21 @@ private lemma refineAllPt_segment_form (G : EvenGraph) (pt : Vector2D) :
         (s' = ⟨pt, s.p2⟩ ∧ pt ∈ s.toSet ∧ pt ≠ s.p1 ∧ pt ≠ s.p2) :=
   refineAllPtBounded_segment_form _ G pt
 
-private lemma refineAllPt_boundary_eq (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPt_boundary_eq (G : EvenGraph) (pt : Vector2D) :
     (refineAllPt G pt).toBoundarySet = G.toBoundarySet :=
   refineAllPtBounded_boundary_eq _ G pt
 
-private lemma refineAllPt_interior_eq (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPt_interior_eq (G : EvenGraph) (pt : Vector2D) :
     (refineAllPt G pt).interior = G.interior :=
   refineAllPtBounded_interior_eq _ G pt
 
 /-- After `refineAllPt G pt`, pt is an endpoint of every segment containing it. -/
-private lemma refineAllPt_pt_endpoint (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPt_pt_endpoint (G : EvenGraph) (pt : Vector2D) :
     ∀ s ∈ (refineAllPt G pt).segments, pt ∈ s.toSet → pt = s.p1 ∨ pt = s.p2 :=
   refineAllPtBounded_pt_endpoint _ G pt (le_refl _)
 
 /-- `refineAllPt` preserves the endpoint property for a different point q. -/
-private lemma refineAllPt_preserves_endpoint (G : EvenGraph) (pt q : Vector2D)
+lemma refineAllPt_preserves_endpoint (G : EvenGraph) (pt q : Vector2D)
     (h_q_ep : ∀ s ∈ G.segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2) :
     ∀ s ∈ (refineAllPt G pt).segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2 :=
   refineAllPtBounded_preserves_endpoint _ G pt q h_q_ep
@@ -1260,7 +1260,7 @@ def refineGraphWithPoints : (G : EvenGraph) →
       rw [refineAllPt_boundary_eq]
       exact h_all q (List.mem_cons.mpr (.inr hq)))
 
-private lemma refineGraphWithPoints_boundary_eq :
+lemma refineGraphWithPoints_boundary_eq :
     ∀ (G : EvenGraph) (pts : List Vector2D)
       (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet),
     (refineGraphWithPoints G pts h_all).toBoundarySet = G.toBoundarySet
@@ -1274,7 +1274,7 @@ private lemma refineGraphWithPoints_boundary_eq :
     have h_ih := refineGraphWithPoints_boundary_eq (refineAllPt G pt) rest h_all'
     rw [h_ih, h_bdy_step]
 
-private lemma refineGraphWithPoints_interior_eq :
+lemma refineGraphWithPoints_interior_eq :
     ∀ (G : EvenGraph) (pts : List Vector2D)
       (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet),
     (refineGraphWithPoints G pts h_all).interior = G.interior
@@ -1291,7 +1291,7 @@ private lemma refineGraphWithPoints_interior_eq :
     rw [h_ih, h_int_step]
 
 /-- `refineGraphWithPoints` preserves the endpoint property for any fixed point `q`. -/
-private lemma refineGraphWithPoints_preserves_endpoint :
+lemma refineGraphWithPoints_preserves_endpoint :
     ∀ (G : EvenGraph) (pts : List Vector2D) (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet)
       (q : Vector2D),
     (∀ s ∈ G.segments, q ∈ s.toSet → q = s.p1 ∨ q = s.p2) →
@@ -1303,7 +1303,7 @@ private lemma refineGraphWithPoints_preserves_endpoint :
     exact refineAllPt_preserves_endpoint G pt q h
 
 /-- Unfolding lemma: refining at `pt :: rest` is refining at `pt`, then at `rest`. -/
-private theorem refineGraphWithPoints_cons (G : EvenGraph) (pt : Vector2D)
+theorem refineGraphWithPoints_cons (G : EvenGraph) (pt : Vector2D)
     (rest : List Vector2D) (h_all : ∀ q ∈ pt :: rest, q ∈ G.toBoundarySet) :
     refineGraphWithPoints G (pt :: rest) h_all =
     refineGraphWithPoints (refineAllPt G pt) rest (by
@@ -1313,11 +1313,11 @@ private theorem refineGraphWithPoints_cons (G : EvenGraph) (pt : Vector2D)
   rfl
 
 /-- Refining at empty list is identity. -/
-private theorem refineGraphWithPoints_nil (G : EvenGraph)
+theorem refineGraphWithPoints_nil (G : EvenGraph)
     (h_all : ∀ q ∈ ([] : List Vector2D), q ∈ G.toBoundarySet) :
     refineGraphWithPoints G [] h_all = G := rfl
 
-private lemma refineGraphWithPoints_pts_endpoint :
+lemma refineGraphWithPoints_pts_endpoint :
     ∀ (G : EvenGraph) (pts : List Vector2D)
       (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet)
       (q : Vector2D) (_ : q ∈ pts)
@@ -1356,7 +1356,7 @@ def iterativeSplit : LineSegment → List Vector2D → List LineSegment
       iterativeSplit seg rest
 
 /-- `iterativeSplit` is invariant under endpoint swap, modulo `toEndpointsMultiset`. -/
-private lemma iterativeSplit_swap_perm (s : LineSegment) (pts : List Vector2D) :
+lemma iterativeSplit_swap_perm (s : LineSegment) (pts : List Vector2D) :
     List.Perm
       ((iterativeSplit s pts).map LineSegment.toEndpointsMultiset)
       ((iterativeSplit ⟨s.p2, s.p1⟩ pts).map LineSegment.toEndpointsMultiset) := by
@@ -1419,7 +1419,7 @@ private lemma iterativeSplit_swap_perm (s : LineSegment) (pts : List Vector2D) :
 
 /-- `iterativeSplit` respects the toEndpointsMultiset on its input segment:
     if two segments have the same toEM, their iterative splits do too. -/
-private lemma iterativeSplit_perm_of_toEM_eq (s s' : LineSegment) (pts : List Vector2D)
+lemma iterativeSplit_perm_of_toEM_eq (s s' : LineSegment) (pts : List Vector2D)
     (h : s.toEndpointsMultiset = s'.toEndpointsMultiset) :
     List.Perm
       ((iterativeSplit s pts).map LineSegment.toEndpointsMultiset)
@@ -1514,7 +1514,7 @@ theorem iterativeSplit_append (seg : LineSegment) (l1 l2 : List Vector2D) :
       exact ih seg
 
 /-- Transfer a `toEM`-perm through `flatMap iterativeSplit · pts`. -/
-private lemma flatMap_iterativeSplit_perm_of_perm_toEM
+lemma flatMap_iterativeSplit_perm_of_perm_toEM
     (pts : List Vector2D) :
     ∀ (L1 L2 : List LineSegment),
       List.Perm (L1.map LineSegment.toEndpointsMultiset)
@@ -1724,7 +1724,7 @@ theorem refineGraphWithPoints_segments_perm
 
 /-- Vertex set bound for `refineAllPtBounded`: every vertex of the result is
     either `pt` or a vertex of `G`. -/
-private lemma refineAllPtBounded_toVertexSet_subset (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPtBounded_toVertexSet_subset (n : ℕ) (G : EvenGraph) (pt : Vector2D) :
     (refineAllPtBounded n G pt).toVertexSet ⊆ insert pt G.toVertexSet := by
   induction n generalizing G with
   | zero =>
@@ -1755,13 +1755,13 @@ private lemma refineAllPtBounded_toVertexSet_subset (n : ℕ) (G : EvenGraph) (p
 
 /-- Vertex set bound for `refineAllPt`: every vertex of the result is either
     `pt` or a vertex of `G`. -/
-private lemma refineAllPt_toVertexSet_subset (G : EvenGraph) (pt : Vector2D) :
+lemma refineAllPt_toVertexSet_subset (G : EvenGraph) (pt : Vector2D) :
     (refineAllPt G pt).toVertexSet ⊆ insert pt G.toVertexSet :=
   refineAllPtBounded_toVertexSet_subset _ G pt
 
 /-- Vertex set bound for `refineGraphWithPoints`: every vertex of the result is
     either in `pts` or a vertex of `G`. -/
-private lemma refineGraphWithPoints_toVertexSet_subset :
+lemma refineGraphWithPoints_toVertexSet_subset :
     ∀ (G : EvenGraph) (pts : List Vector2D)
       (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet),
     (refineGraphWithPoints G pts h_all).toVertexSet ⊆ G.toVertexSet ∪ { p | p ∈ pts }
@@ -1787,7 +1787,7 @@ private lemma refineGraphWithPoints_toVertexSet_subset :
 
 /-- `refineAllPt` preserves the h_no_segment_interior_vertices property: if no vertex of `G` lies
     strictly interior to a segment of `G`, the same holds in `refineAllPt G pt`. -/
-private lemma refineAllPt_preserves_no_segment_interior_vertices (G : EvenGraph) (pt : Vector2D)
+lemma refineAllPt_preserves_no_segment_interior_vertices (G : EvenGraph) (pt : Vector2D)
     (h_G : ∀ v ∈ G.toVertices, ∀ seg ∈ G.segments,
       seg.p1 ≠ v → seg.p2 ≠ v → v ∉ seg.toSet) :
     ∀ v ∈ (refineAllPt G pt).toVertices, ∀ seg ∈ (refineAllPt G pt).segments,
@@ -1847,7 +1847,7 @@ private lemma refineAllPt_preserves_no_segment_interior_vertices (G : EvenGraph)
 
 /-- `refineGraphWithPoints` preserves the h_no_segment_interior_vertices property: iterate
     `refineAllPt_preserves_no_segment_interior_vertices` over the list of points. -/
-private lemma refineGraphWithPoints_preserves_no_segment_interior_vertices :
+lemma refineGraphWithPoints_preserves_no_segment_interior_vertices :
     ∀ (G : EvenGraph) (pts : List Vector2D)
       (h_all : ∀ pt ∈ pts, pt ∈ G.toBoundarySet),
     (∀ v ∈ G.toVertices, ∀ seg ∈ G.segments,

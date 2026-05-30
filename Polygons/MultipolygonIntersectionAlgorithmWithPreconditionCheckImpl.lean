@@ -67,7 +67,7 @@ def finitePreconditionBool (m1 m2 : Multipolygon) : Bool :=
 
 /-- Combined precondition check. -/
 def allPreconditionsBool (m1 m2 : Multipolygon) : Bool :=
-  basicPreconditionsBool m1 m2 && finitePreconditionBool m1 m2
+  basicPreconditionsBool m1 m2
 
 /-- The precondition-checking wrapper: returns `some result` when all
 preconditions hold, `none` otherwise. **This is the function the WASM

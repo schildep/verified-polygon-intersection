@@ -88,6 +88,12 @@ def dedupConsec {α : Type u} [DecidableEq α] : List α → List α
   | [a] => [a]
   | a :: b :: rest => if a = b then dedupConsec (b :: rest) else a :: dedupConsec (b :: rest)
 
+/-- Remove all duplicates from a list, keeping the first occurrence (Mathlib-free analogue of
+    `List.dedup`; produces a `Nodup` list with the same membership). -/
+def dedupList {α : Type u} [DecidableEq α] : List α → List α
+  | [] => []
+  | a :: t => a :: (dedupList t).filter (fun x => decide (x ≠ a))
+
 
 
 def splitSegmentAtPoints (seg : LineSegment) (pts : List Vector2D) : List LineSegment :=
@@ -110,6 +116,32 @@ def refinementPointsForSegment (seg : LineSegment) (m other : Multipolygon) : Li
 def refinedSegments (m other : Multipolygon) : List LineSegment :=
   m.segments.flatMap (fun seg =>
     splitSegmentAtPoints seg (refinementPointsForSegment seg m other))
+
+
+
+/-- Refinement points matching the *arrangement* `arr (m.toEvenGraph) (other.toEvenGraph)`:
+    every breakpoint of that finite arrangement lying on `seg`, namely the transversal crossings
+    of `seg` with `other`'s segments AND with `m`'s own segments (self-arrangement), together with
+    `m`'s own vertices and `other`'s vertices lying on `seg`. Unlike `refinementPointsForSegment`,
+    this refines at self-crossings and at the other graph's on-boundary vertices, so each resulting
+    shared sub-edge is a maximal-between-breakpoints piece (matching `arr`). -/
+def refinementPointsForSegment' (seg : LineSegment) (m other : Multipolygon) : List Vector2D :=
+  let crossingsOther := other.segments.filterMap (segSegIntersect seg)
+  let crossingsSelf := m.segments.filterMap (segSegIntersect seg)
+  let selfVerts := m.allVertices.filter (fun v =>
+    pointOnSegmentBool v seg.p1 seg.p2 && decide (v ≠ seg.p1) && decide (v ≠ seg.p2))
+  let otherVerts := other.allVertices.filter (fun v =>
+    pointOnSegmentBool v seg.p1 seg.p2 && decide (v ≠ seg.p1) && decide (v ≠ seg.p2))
+  ((crossingsOther ++ crossingsSelf) ++ selfVerts) ++ otherVerts
+
+
+
+/-- The arrangement-matching refinement of `m` w.r.t. `other` (cf. `refinedSegments`, but using
+    `refinementPointsForSegment'`). Its endpoint-multiset list is a permutation of
+    `(arr (m.toEvenGraph) (other.toEvenGraph)).segments`. -/
+def refinedSegments' (m other : Multipolygon) : List LineSegment :=
+  m.segments.flatMap (fun seg =>
+    splitSegmentAtPoints seg (refinementPointsForSegment' seg m other))
 
 
 
@@ -174,8 +206,113 @@ def decomposeSegments (segs : List LineSegment) : List Polygon :=
 
 
 
+/-! ## Shared-edge flip test
+
+For a shared edge `σ` of the arrangement (lying on `∂m1 ∩ ∂m2`), `onInterBoundaryBool`
+decides whether `σ` is on the boundary of `m1.interior ∩ m2.interior`, by checking whether
+the `A ∩ B` indicator flips across `σ` along a clean rational transversal. -/
+
+/-- `s` is collinear with `σ`: both endpoints of `s` lie on the line of `σ`, tested via the
+    cross-product `(p.x - σ.p1.x)*(σ.p2.y - σ.p1.y) = (p.y - σ.p1.y)*(σ.p2.x - σ.p1.x)`. -/
+def sameLineBool (σ s : LineSegment) : Bool :=
+  decide ((s.p1.x - σ.p1.x) * (σ.p2.y - σ.p1.y) = (s.p1.y - σ.p1.y) * (σ.p2.x - σ.p1.x)) &&
+  decide ((s.p2.x - σ.p1.x) * (σ.p2.y - σ.p1.y) = (s.p2.y - σ.p1.y) * (σ.p2.x - σ.p1.x))
+
+/-- The boundary segments of `m1` and `m2` that are **not** collinear with `σ`. -/
+def nonCollinearSegsBool (σ : LineSegment) (m1 m2 : Multipolygon) : List LineSegment :=
+  (m1.segments ++ m2.segments).filter (fun s => !sameLineBool σ s)
+
+/-- A direction `(1, q)` is *good* for `σ` and the non-collinear boundary segments `L` iff it
+    is transversal to `σ` and non-parallel to every segment in `L`. -/
+def goodSlopeCond (σ : LineSegment) (L : List LineSegment) (q : Rat) : Bool :=
+  decide ((σ.p2.x - σ.p1.x) * q - (σ.p2.y - σ.p1.y) ≠ 0) &&
+  L.all (fun s => decide ((s.p2.y - s.p1.y) - q * (s.p2.x - s.p1.x) ≠ 0))
+
+/-- A rational slope `q` such that `(1, q)` is transversal to `σ` and non-parallel to every
+    non-collinear boundary segment. Found by a finite search over `0, 1, 2, …`; there are only
+    finitely many bad slopes (at most `1 + #nonCollinear`), and we search
+    `#segments + 2` candidates, so a good one always exists. Defaults to `0`. -/
+def goodSlope (σ : LineSegment) (m1 m2 : Multipolygon) : Rat :=
+  let L := nonCollinearSegsBool σ m1 m2
+  let cands := (List.range (m1.segments.length + m2.segments.length + 2)).map
+    (fun n => (Nat.cast n : Rat))
+  match cands.find? (fun q => goodSlopeCond σ L q) with
+  | some q => q
+  | none => 0
+
+/-- Crossing parameter of the line `{p + t·(1,q)}` with segment `s` (Mathlib-free copy of the
+    proof-side `tOff`). -/
+def tOffImpl (q : Rat) (s : LineSegment) (p : Vector2D) : Rat :=
+  ((s.p1.x - p.x) * (s.p2.y - s.p1.y) - (s.p1.y - p.y) * (s.p2.x - s.p1.x)) /
+    ((s.p2.y - s.p1.y) - q * (s.p2.x - s.p1.x))
+
+/-- Minimum over a list of segments of the positive crossing parameters in direction `(ε, ε·q)`
+    (default `1`); always positive (Mathlib-free copy of the proof-side `offClearance`). -/
+def offClearanceImpl (ε q : Rat) (L : List LineSegment) (p : Vector2D) : Rat :=
+  L.foldr (fun s acc => if 0 < ε * tOffImpl q s p then min acc (ε * tOffImpl q s p) else acc) 1
+
+/-- A positive rational clearance: half the smaller of the two one-sided clearances of the
+    midpoint `c` against the non-collinear boundary segments, in directions `(1,q)` and
+    `(-1,-q)`. This stays clear of every non-collinear boundary segment in both directions. -/
+def clearanceDelta (σ : LineSegment) (m1 m2 : Multipolygon) : Rat :=
+  let c := segmentMidpoint σ
+  let q := goodSlope σ m1 m2
+  let L := nonCollinearSegsBool σ m1 m2
+  min (offClearanceImpl 1 q L c) (offClearanceImpl (-1) q L c) / 2
+
+/-- **Shared-edge flip test.** For `σ` a shared edge of the arrangement of `m1, m2` (lying on
+    `∂m1 ∩ ∂m2`), returns `true` iff `σ` is on the boundary of `m1.interior ∩ m2.interior`,
+    i.e. iff the `A ∩ B` indicator differs between the two sides of `σ` along a clean rational
+    transversal `(a, b)` through the midpoint `c` of `σ`. -/
+def onInterBoundaryBool (σ : LineSegment) (m1 m2 : Multipolygon) : Bool :=
+  let c := segmentMidpoint σ
+  let q := goodSlope σ m1 m2
+  let δ := clearanceDelta σ m1 m2
+  let a : Vector2D := ⟨c.x + δ, c.y + δ * q⟩
+  let b : Vector2D := ⟨c.x - δ, c.y - δ * q⟩
+  (pointInsideMultipolygonBool a m1 && pointInsideMultipolygonBool a m2) !=
+    (pointInsideMultipolygonBool b m1 && pointInsideMultipolygonBool b m2)
+
+
+
+/-! ## Shared-edge contribution and the general intersection graph -/
+
+/-- Canonical orientation of a segment (Mathlib-free copy of the proof-side `canonSeg`):
+    orient so the first endpoint is lexicographically `≤` the second. -/
+def canonSegImpl (σ : LineSegment) : LineSegment :=
+  if σ.p1.x < σ.p2.x ∨ (σ.p1.x = σ.p2.x ∧ σ.p1.y ≤ σ.p2.y) then σ else ⟨σ.p2, σ.p1⟩
+
+/-- `σ` is a shared edge of `m2`: its midpoint lies on `∂m2`. For a refined (arrangement)
+    edge this is equivalent to `σ.toSet ⊆ ∂m2`, since such an edge meets `∂m2` either only at
+    its endpoints (transversal) or along its whole length (shared). -/
+def isSharedBool (σ : LineSegment) (m2 : Multipolygon) : Bool :=
+  m2.segments.any (fun s => pointOnSegmentBool (segmentMidpoint σ) s.p1 s.p2)
+
+/-- The shared-edge contribution to the intersection graph: each distinct shared refined edge
+    (canonicalised, deduplicated), included **once** if the `A ∩ B` indicator flips across it
+    (`onInterBoundaryBool`), and **twice** otherwise. The doubling is parity-neutral but still
+    places the edge in the graph so its points are excluded from the interior. Mirrors
+    `sharedSelected ++ phantomDoubled` of the noncomputable `interGraph`. -/
+def sharedContribution (m1 m2 : Multipolygon) : List LineSegment :=
+  ((dedupList ((refinedSegments' m1 m2).map canonSegImpl)).filter
+    (fun σ => isSharedBool σ m2)).flatMap
+    (fun σ => if onInterBoundaryBool σ m1 m2 then [σ] else [σ, σ])
+
+/-- The general (finiteness-free) intersection graph segments: transversal refined edges inside
+    the other multipolygon (both directions) plus the shared-edge contribution. This is the
+    arrangement-matching analogue of `intersectionGraphSegments`; its endpoint-multiset list is a
+    permutation of the noncomputable `EvenGraphIntersectionGenProofs.interGraph`. -/
+def intersectionGraphSegments' (m1 m2 : Multipolygon) : List LineSegment :=
+  (selectInsideOther (refinedSegments' m1 m2) m2 ++
+    selectInsideOther (refinedSegments' m2 m1) m1) ++
+    sharedContribution m1 m2
+
+
+
+/-- The computable multipolygon intersection algorithm: decompose the general (finiteness-free)
+    intersection graph `intersectionGraphSegments'` into polygons. -/
 def multipolygonIntersectionAlgorithm (m1 m2 : Multipolygon) : Multipolygon :=
-  ⟨decomposeSegments (intersectionGraphSegments m1 m2)⟩
+  ⟨decomposeSegments (intersectionGraphSegments' m1 m2)⟩
 
 
 end MultipolygonIntersectionAlgorithmImpl

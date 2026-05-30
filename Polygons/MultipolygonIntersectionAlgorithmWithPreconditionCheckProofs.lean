@@ -757,24 +757,21 @@ theorem multipolygonIntersectionAlgorithmWithPreconditionCheck_complete
     (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
-    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin : Set.Finite (m1.toBoundarySet ∩ m2.toBoundarySet)) :
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
     ∃ result : Multipolygon,
       multipolygonIntersectionAlgorithmWithPreconditionCheck m1 m2 = some result ∧
       m1.interior ∩ m2.interior = result.interior := by
   have h_basic : basicPreconditionsBool m1 m2 = true :=
     (basicPreconditionsBool_iff m1 m2).mpr ⟨h1_len, h2_len, h1_nondeg, h2_nondeg⟩
-  have h_fin_bool : finitePreconditionBool m1 m2 = true :=
-    finitePreconditionBool_complete_of_finite m1 m2 h1_nondeg h_fin
   have h_all : allPreconditionsBool m1 m2 = true := by
     unfold allPreconditionsBool
-    rw [Bool.and_eq_true]; exact ⟨h_basic, h_fin_bool⟩
+    exact h_basic
   refine ⟨multipolygonIntersectionAlgorithm m1 m2, ?_, ?_⟩
   · unfold multipolygonIntersectionAlgorithmWithPreconditionCheck
     rw [if_pos h_all]
     rfl
   · exact multipolygonIntersectionAlgorithm_interior_eq m1 m2
-      h1_len h2_len h1_nondeg h2_nondeg h_fin
+      h1_len h2_len h1_nondeg h2_nondeg
 
 /-- Main soundness theorem: when the wrapper returns `some result`, the
     `multipolygonIntersectionAlgorithm_interior_eq` conclusion holds for
@@ -788,15 +785,12 @@ theorem multipolygonIntersectionAlgorithmWithPreconditionCheck_correct
   · rw [if_pos hpre] at h
     have h_result : result = multipolygonIntersectionAlgorithm m1 m2 :=
       (Option.some.inj h).symm
-    unfold allPreconditionsBool at hpre
-    rw [Bool.and_eq_true] at hpre
-    obtain ⟨h_basic, h_fin⟩ := hpre
     have ⟨h1_len, h2_len, h1_nondeg, h2_nondeg⟩ :=
-      (basicPreconditionsBool_iff m1 m2).mp h_basic
-    have h_finite := finitePreconditionBool_implies_finite m1 m2 h_fin
+      (basicPreconditionsBool_iff m1 m2).mp
+        (by unfold allPreconditionsBool at hpre; exact hpre)
     rw [h_result]
     exact multipolygonIntersectionAlgorithm_interior_eq m1 m2
-      h1_len h2_len h1_nondeg h2_nondeg h_finite
+      h1_len h2_len h1_nondeg h2_nondeg
   · rw [if_neg hpre] at h
     cases h
 

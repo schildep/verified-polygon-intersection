@@ -1,4 +1,4 @@
-import Polygons.EvenGraphIntersectionProofs
+import Polygons.InterGraphMain
 
 /-!
 # Even Graph Intersection – Interface
@@ -127,8 +127,13 @@ theorem evenGraphIntersection_interior_eq_exists_helper
 /-- The intersection graph of two even graphs (with finite boundary
     intersections) is itself an even graph, and the `EvenGraph.interior` of
     its even-graph wrapping equals the set-theoretic intersection of the
-    interiors of the two input graphs. -/
-theorem evenGraphIntersection_isEven_and_interior_eq
+    interiors of the two input graphs.
+
+    This is the *construction-specific* statement, still requiring the finite
+    boundary-intersection hypothesis; it is used by the multipolygon
+    intersection algorithm. The general statement (no finiteness hypothesis)
+    is `evenGraphIntersection_isEven_and_interior_eq`. -/
+theorem evenGraphIntersection_isEven_and_interior_eq_fin
     (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet)) :
     ∃ h_even : (evenGraphIntersection G1 G2 h_fin12).IsEven,
@@ -136,5 +141,16 @@ theorem evenGraphIntersection_isEven_and_interior_eq
         G1.interior ∩ G2.interior :=
   EvenGraphIntersectionProofs.intersection_isEven_and_interior_eq
     G1 G2 h_fin12
+
+/-- **For any two even graphs** `G1`, `G2` (with no finiteness hypothesis on the
+    boundary intersection), there is an even graph whose `EvenGraph.interior`
+    equals the set-theoretic intersection of the interiors of `G1` and `G2`.
+    The witness is constructed explicitly (see
+    `EvenGraphIntersectionGenProofs.interGraph`). -/
+theorem evenGraphIntersection_isEven_and_interior_eq (G1 G2 : EvenGraph) :
+    ∃ G : EvenGraph, G.interior = G1.interior ∩ G2.interior := by
+  obtain ⟨h_even, h_eq⟩ :=
+    EvenGraphIntersectionGenProofs.interGraph_isEven_and_interior_eq G1 G2
+  exact ⟨⟨EvenGraphIntersectionGenProofs.interGraph G1 G2, h_even⟩, h_eq⟩
 
 end

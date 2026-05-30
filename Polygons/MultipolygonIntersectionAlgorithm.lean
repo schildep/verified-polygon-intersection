@@ -34,12 +34,11 @@ theorem multipolygonIntersectionAlgorithm_interior_eq
     (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
-    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin : Set.Finite (m1.toBoundarySet ∩ m2.toBoundarySet)) :
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
     m1.interior ∩ m2.interior =
       (multipolygonIntersectionAlgorithm m1 m2).interior :=
   MultipolygonIntersectionAlgorithmProofs.multipolygonIntersectionAlgorithm_correct
-    m1 m2 h1_len h2_len h1_nondeg h2_nondeg h_fin
+    m1 m2 h1_len h2_len h1_nondeg h2_nondeg
 
 /-! ## Example: two unit squares, shifted by `(1/2, 1/2)`.
 The intersection is a single `1/2 × 1/2` square (as a singleton multipolygon). -/

@@ -46,12 +46,12 @@ lemma flipFin {G1 G2 : EvenGraph}
 
 The user-facing definition of the intersection graph lives at the top of the
 hierarchy in `EvenGraphIntersection.lean` as `evenGraphIntersection`. The
-private helpers below are the same construction in list form, used only as
+helpers below are the same construction in list form, used only as
 proof scaffolding inside this file. They are kept `private` so they cannot be
 mistaken for the public API. -/
 
 /-- Internal scaffolding: list of segments of the intersection graph. -/
-private def intersectionSegments (G1 G2 : EvenGraph)
+def intersectionSegments (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet)) :
     List LineSegment :=
@@ -59,14 +59,14 @@ private def intersectionSegments (G1 G2 : EvenGraph)
     selectSegmentsInside (graphRefinementSelfAndWrt G2 G1 h_fin21).segments G1.interior
 
 /-- Internal scaffolding: ray-crossing count for the intersection graph. -/
-private noncomputable def intersectionRayCount (r : Ray) (G1 G2 : EvenGraph)
+noncomputable def intersectionRayCount (r : Ray) (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet)) : ℕ :=
   (intersectionSegments G1 G2 h_fin12 h_fin21).countP
     fun seg => decide (rayIntersectsSegment r seg)
 
 /-- Internal scaffolding: ray-parity interior of the intersection graph. -/
-private def intersectionInterior (G1 G2 : EvenGraph)
+def intersectionInterior (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet)) :
     Set Vector2D :=
@@ -82,7 +82,7 @@ private def intersectionInterior (G1 G2 : EvenGraph)
     intersection graph. Same avoidance conditions on `p` but only requires
     the existence of one ray (avoiding both refined graph vertices) with
     odd intersection-graph parity. -/
-private def intersectionInteriorExists (G1 G2 : EvenGraph)
+def intersectionInteriorExists (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet)) :
     Set Vector2D :=
@@ -97,14 +97,14 @@ private def intersectionInteriorExists (G1 G2 : EvenGraph)
 /-! ### Helper lemmas -/
 
 /-- Not on boundary of refined graph ↔ not on boundary of original graph. -/
-private lemma not_boundary_refined_iff
+lemma not_boundary_refined_iff
     (p : Vector2D) (G1 G2 : EvenGraph)
     (h_fin : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet)) :
     p ∉ (graphRefinementSelfAndWrt G1 G2 h_fin).toBoundarySet ↔ p ∉ G1.toBoundarySet := by
   rw [graphRefinementSelfAndWrt_boundary_eq]
 
 /-- Boundary avoidance for refined graph ↔ boundary avoidance for original. -/
-private lemma avoids_refined_iff_avoids_original
+lemma avoids_refined_iff_avoids_original
     (p : Vector2D) (G1 G2 : EvenGraph)
     (h_fin : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet)) :
     (∀ seg ∈ (graphRefinementSelfAndWrt G1 G2 h_fin).segments, pointAvoidsSegment p seg) ↔
@@ -122,7 +122,7 @@ private lemma avoids_refined_iff_avoids_original
 
 /-- Given a point that is not a vertex of either refined graph, there exists
     a ray from it avoiding the vertices of both refined graphs. -/
-private lemma exists_ray_avoiding_both_vertices
+lemma exists_ray_avoiding_both_vertices
     (p : Vector2D)
     (G1' G2' : EvenGraph)
     (h_not_vertex : ∀ v ∈ G1'.toVertices ++ G2'.toVertices, v ≠ p) :
@@ -168,7 +168,7 @@ private lemma exists_ray_avoiding_both_vertices
 
 /-- If p avoids all segments of a graph whose vertices all have positive degree,
     then p is not a vertex of that graph. -/
-private lemma not_vertex_of_avoids_segments (p : Vector2D) (G : EvenGraph)
+lemma not_vertex_of_avoids_segments (p : Vector2D) (G : EvenGraph)
     (h_pos : ∀ v ∈ G.toVertices,
       (G.segments.countP fun seg => seg.p1 = v ∨ seg.p2 = v) > 0)
     (h_avoids : ∀ seg ∈ G.segments, pointAvoidsSegment p seg)
@@ -183,7 +183,7 @@ private lemma not_vertex_of_avoids_segments (p : Vector2D) (G : EvenGraph)
   exact h_avoids seg h_seg (h_eq ▸ h_on)
 
 /-- If a vertex has positive degree, it lies on some segment of the graph. -/
-private lemma vertex_on_some_segment (G : EvenGraph) (v : Vector2D)
+lemma vertex_on_some_segment (G : EvenGraph) (v : Vector2D)
     (h_degree_pos : (G.segments.countP fun seg => seg.p1 = v ∨ seg.p2 = v) > 0) :
     ∃ seg ∈ G.segments, v ∈ seg.toSet := by
   have ⟨seg, h_mem, h_pred⟩ := List.countP_pos_iff.mp h_degree_pos
@@ -194,7 +194,7 @@ private lemma vertex_on_some_segment (G : EvenGraph) (v : Vector2D)
   · exact ⟨1, zero_le_one, le_refl 1, by ring, by ring⟩
 
 /-- Any point not on a graph vertex admits a ray that avoids all vertices. -/
-private lemma exists_ray_avoiding_graph_verts (p : Vector2D) (G : EvenGraph)
+lemma exists_ray_avoiding_graph_verts (p : Vector2D) (G : EvenGraph)
     (h_not_vertex : ∀ v ∈ G.toVertices, v ≠ p) :
     ∃ r : Ray, r.origin = p ∧ rayAvoidsGraphVertices r G := by
   obtain ⟨r, h_orig, h_avoids, _⟩ :=
@@ -211,7 +211,7 @@ private lemma exists_ray_avoiding_graph_verts (p : Vector2D) (G : EvenGraph)
     Returns the parameter t ≥ 0 such that `r.origin + t * r.direction` lies on
     both the ray and the segment. When the ray avoids segment endpoints and is
     not collinear with the segment, this parameter is unique. -/
-private noncomputable def rayCrossingParam (r : Ray) (seg : LineSegment)
+noncomputable def rayCrossingParam (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) : ℚ :=
   h.choose_spec.1.choose
 
@@ -219,7 +219,7 @@ private noncomputable def rayCrossingParam (r : Ray) (seg : LineSegment)
 
 /-- Auxiliary: `countP` distributes over `filter` — counting elements of a filtered
     list that satisfy Q equals counting elements that satisfy both predicates. -/
-private lemma countP_filter_eq {α : Type*} (P Q : α → Bool) (l : List α) :
+lemma countP_filter_eq {α : Type*} (P Q : α → Bool) (l : List α) :
     (l.filter P).countP Q = l.countP (fun x => P x && Q x) := by
   induction l with
   | nil => simp
@@ -239,7 +239,7 @@ private lemma countP_filter_eq {α : Type*} (P Q : α → Bool) (l : List α) :
     This follows directly from the definition of `intersectionRayCount` as
     `countP rayIntersects (selectSegmentsInside G1'.segs G2.int ++ selectSegmentsInside G2'.segs G1.int)`,
     using `List.countP_append` and the fact that `selectSegmentsInside` is `filter`. -/
-private lemma intersectionRayCount_eq_sum_inside_crossing_counts
+lemma intersectionRayCount_eq_sum_inside_crossing_counts
     (r : Ray) (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet)) :
@@ -253,40 +253,40 @@ private lemma intersectionRayCount_eq_sum_inside_crossing_counts
 /-! #### Ray parameter extraction and sub-ray construction -/
 
 /-- The crossing point of a ray and segment (chosen via classical choice). -/
-private noncomputable def rayCrossingPoint (r : Ray) (seg : LineSegment)
+noncomputable def rayCrossingPoint (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) : Vector2D := h.choose
 
-private lemma rayCrossingPoint_mem_ray (r : Ray) (seg : LineSegment)
+lemma rayCrossingPoint_mem_ray (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     rayCrossingPoint r seg h ∈ r.toSet := h.choose_spec.1
 
-private lemma rayCrossingPoint_mem_seg (r : Ray) (seg : LineSegment)
+lemma rayCrossingPoint_mem_seg (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     rayCrossingPoint r seg h ∈ seg.toSet := h.choose_spec.2
 
-private lemma rayCrossingParam_nonneg (r : Ray) (seg : LineSegment)
+lemma rayCrossingParam_nonneg (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     0 ≤ rayCrossingParam r seg h :=
   h.choose_spec.1.choose_spec.1
 
-private lemma rayCrossingPoint_x (r : Ray) (seg : LineSegment)
+lemma rayCrossingPoint_x (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     (rayCrossingPoint r seg h).x =
       r.origin.x + rayCrossingParam r seg h * r.direction.x :=
   h.choose_spec.1.choose_spec.2.1
 
-private lemma rayCrossingPoint_y (r : Ray) (seg : LineSegment)
+lemma rayCrossingPoint_y (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     (rayCrossingPoint r seg h).y =
       r.origin.y + rayCrossingParam r seg h * r.direction.y :=
   h.choose_spec.1.choose_spec.2.2
 
 /-- Sub-ray starting at `r.origin + t₀ * r.direction`, same direction as `r`. -/
-private def subRay (r : Ray) (t₀ : ℚ) : Ray :=
+def subRay (r : Ray) (t₀ : ℚ) : Ray :=
   ⟨⟨r.origin.x + t₀ * r.direction.x, r.origin.y + t₀ * r.direction.y⟩,
    r.direction, r.direction_nonzero⟩
 
-private lemma subRay_toSet_mem_iff (r : Ray) (t₀ : ℚ) (p : Vector2D) :
+lemma subRay_toSet_mem_iff (r : Ray) (t₀ : ℚ) (p : Vector2D) :
     p ∈ (subRay r t₀).toSet ↔ ∃ s : ℚ, 0 ≤ s ∧
       p.x = r.origin.x + (t₀ + s) * r.direction.x ∧
       p.y = r.origin.y + (t₀ + s) * r.direction.y := by
@@ -304,7 +304,7 @@ private lemma subRay_toSet_mem_iff (r : Ray) (t₀ : ℚ) (p : Vector2D) :
     · show p.y = r.origin.y + t₀ * r.direction.y + s * r.direction.y
       rw [hy]; ring
 
-private lemma subRay_toSet_subset (r : Ray) (t₀ : ℚ) (ht₀ : 0 ≤ t₀) :
+lemma subRay_toSet_subset (r : Ray) (t₀ : ℚ) (ht₀ : 0 ≤ t₀) :
     (subRay r t₀).toSet ⊆ r.toSet := by
   intro p hp
   rw [subRay_toSet_mem_iff] at hp
@@ -312,7 +312,7 @@ private lemma subRay_toSet_subset (r : Ray) (t₀ : ℚ) (ht₀ : 0 ≤ t₀) :
   exact ⟨t₀ + s, by linarith, hx, hy⟩
 
 /-- Ray self-injectivity: if two parameters give the same point, they're equal. -/
-private lemma ray_param_inj (r : Ray) (t u : ℚ)
+lemma ray_param_inj (r : Ray) (t u : ℚ)
     (hx : r.origin.x + t * r.direction.x = r.origin.x + u * r.direction.x)
     (hy : r.origin.y + t * r.direction.y = r.origin.y + u * r.direction.y) :
     t = u := by
@@ -326,7 +326,7 @@ private lemma ray_param_inj (r : Ray) (t u : ℚ)
 
 /-- If `rayIntersectsSegment r seg`, the point on the ray at parameter
     `rayCrossingParam r seg h` lies on `seg`. -/
-private lemma rayCrossingParam_point_mem_seg (r : Ray) (seg : LineSegment)
+lemma rayCrossingParam_point_mem_seg (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg) :
     (⟨r.origin.x + rayCrossingParam r seg h * r.direction.x,
        r.origin.y + rayCrossingParam r seg h * r.direction.y⟩ : Vector2D) ∈ seg.toSet := by
@@ -342,7 +342,7 @@ private lemma rayCrossingParam_point_mem_seg (r : Ray) (seg : LineSegment)
 
 /-- Ray-segment intersection via parameters: `rayIntersectsSegment r seg` iff
     there is some `t ≥ 0` whose point on the ray lies on the segment. -/
-private lemma rayIntersectsSegment_iff_exists_param (r : Ray) (seg : LineSegment) :
+lemma rayIntersectsSegment_iff_exists_param (r : Ray) (seg : LineSegment) :
     rayIntersectsSegment r seg ↔ ∃ t : ℚ, 0 ≤ t ∧
       (⟨r.origin.x + t * r.direction.x,
          r.origin.y + t * r.direction.y⟩ : Vector2D) ∈ seg.toSet := by
@@ -355,7 +355,7 @@ private lemma rayIntersectsSegment_iff_exists_param (r : Ray) (seg : LineSegment
     exact ⟨t, ht, rfl, rfl⟩
 
 /-- Sub-ray crosses segment iff there exists a ray parameter `≥ t₀` hitting the segment. -/
-private lemma subRay_crosses_iff (r : Ray) (t₀ : ℚ) (seg : LineSegment) :
+lemma subRay_crosses_iff (r : Ray) (t₀ : ℚ) (seg : LineSegment) :
     rayIntersectsSegment (subRay r t₀) seg ↔
     ∃ t : ℚ, t ≥ t₀ ∧
       (⟨r.origin.x + t * r.direction.x,
@@ -392,7 +392,7 @@ private lemma subRay_crosses_iff (r : Ray) (t₀ : ℚ) (seg : LineSegment) :
 /-- If a ray's origin is not on a segment, and the ray avoids both segment endpoints,
     then the ray's crossing parameter with the segment is unique:
     any `t ≥ 0` with the corresponding point on the segment equals `rayCrossingParam`. -/
-private lemma rayCrossingParam_unique (r : Ray) (seg : LineSegment)
+lemma rayCrossingParam_unique (r : Ray) (seg : LineSegment)
     (h : rayIntersectsSegment r seg)
     (_h_origin : pointAvoidsSegment r.origin seg)
     (h_p1 : seg.p1 ∉ r.toSet) (h_p2 : seg.p2 ∉ r.toSet)
@@ -549,7 +549,7 @@ private lemma rayCrossingParam_unique (r : Ray) (seg : LineSegment)
 
 /-- For any segment of a refined graph crossed by a vertex-avoiding ray, the crossing point
     lies in the open interior of the segment. -/
-private lemma rayCrossingPoint_not_endpoint
+lemma rayCrossingPoint_not_endpoint
     (r : Ray) (G : EvenGraph)
     (seg : LineSegment) (hseg : seg ∈ G.segments)
     (h_avoids : rayAvoidsGraphVertices r G)
@@ -573,7 +573,7 @@ private lemma rayCrossingPoint_not_endpoint
 
 /-- For any G1' segment crossed by a ray that avoids G1' vertices, the crossing point is not
     in G2's boundary set (by the refinement property). -/
-private lemma crossingPoint_avoids_other_boundary
+lemma crossingPoint_avoids_other_boundary
     (r : Ray) (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (s₁ : LineSegment) (hs₁ : s₁ ∈ (graphRefinementSelfAndWrt G1 G2 h_fin12).segments)
@@ -596,7 +596,7 @@ private lemma crossingPoint_avoids_other_boundary
 /-- If the origin of a sub-ray is not on any segment of `G`, then the sub-ray's crossing
     count of `G` equals the count of `G`-segments crossed by the original ray at parameter
     strictly greater than `t₀`. -/
-private lemma subRay_count_eq_past_count
+lemma subRay_count_eq_past_count
     (r : Ray) (t₀ : ℚ) (G : EvenGraph)
     (h_p₀_not : (⟨r.origin.x + t₀ * r.direction.x,
                    r.origin.y + t₀ * r.direction.y⟩ : Vector2D) ∉ G.toBoundarySet) :
@@ -640,7 +640,7 @@ private lemma subRay_count_eq_past_count
 
 /-- If a ray's origin avoids the segments of `G` and the ray avoids `G`'s vertices, then
     the origin is in `G.interior` iff the ray has odd crossing count. -/
-private lemma point_in_interior_iff_odd_count
+lemma point_in_interior_iff_odd_count
     (r : Ray) (G : EvenGraph)
     (h_origin_avoids : ∀ seg ∈ G.segments, pointAvoidsSegment r.origin seg)
     (h_r_avoids_verts : rayAvoidsGraphVertices r G) :
@@ -661,7 +661,7 @@ private lemma point_in_interior_iff_odd_count
 
 /-- If two points lie in the open interior of a segment, the line segment between them
     is contained in that open interior. -/
-private lemma segment_in_open_interior
+lemma segment_in_open_interior
     (seg : LineSegment) (p q : Vector2D)
     (hp : p ∈ seg.toSet) (hp1 : p ≠ seg.p1) (hp2 : p ≠ seg.p2)
     (hq : q ∈ seg.toSet) (hq1 : q ≠ seg.p1) (hq2 : q ≠ seg.p2)
@@ -773,7 +773,7 @@ private lemma segment_in_open_interior
 
 /-- Connectivity: if two points lie in the open interior of a G1'-segment, they have the
     same G2-interior status, provided all G2' vertices are on G2's boundary (positive degree). -/
-private lemma same_G2_interior_status_on_segment
+lemma same_G2_interior_status_on_segment
     (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -881,7 +881,7 @@ private lemma same_G2_interior_status_on_segment
 
 /-- For a G1' segment crossed by the ray, its open interior lies in G2.interior iff
     the sub-ray from the crossing point crosses G2' an odd number of times. -/
-private lemma seg_inside_iff_subRay_odd
+lemma seg_inside_iff_subRay_odd
     (r : Ray) (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -1649,7 +1649,7 @@ theorem intersectionInteriorExists_eq_helper
     boundaries and `r` avoiding both refined graph vertex sets, the parity of the
     number of intersection-graph crossings is odd iff `r.origin ∈ G1.interior ∩
     G2.interior`. Reusable building block. -/
-private lemma intersectionParity_iff_in_interiors
+lemma intersectionParity_iff_in_interiors
     (r : Ray) (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -1675,7 +1675,7 @@ private lemma intersectionParity_iff_in_interiors
 /-- Given a point `p` not on any line segment in a finite list `L`, there exists
     a perturbed point `p'` near `p` such that the segment from `p` to `p'` is
     disjoint from every segment in `L`. -/
-private lemma exists_perturbation
+lemma exists_perturbation
     (p : Vector2D) (L : List LineSegment)
     (h_p_not_in_L : ∀ seg ∈ L, p ∉ seg.toSet) :
     ∃ p' : Vector2D, p' ≠ p ∧
@@ -1867,7 +1867,7 @@ private lemma exists_perturbation
       -- s ≤ m < M ≤ tSeg seg = s. Contradiction.
       linarith
 
-private lemma exists_perturbation_off_segs
+lemma exists_perturbation_off_segs
     (p : Vector2D) (L : List LineSegment)
     (h_seg_nondeg : ∀ seg ∈ L, seg.p1 ≠ seg.p2) :
     ∃ p' : Vector2D, p' ≠ p ∧
@@ -2050,7 +2050,7 @@ private lemma exists_perturbation_off_segs
     boundary: if `p ∈ G2.interior` and the segment from `p` to `q` is disjoint
     from `G2.toBoundarySet`, then `q ∈ G2.interior` (provided `q ∉ G2`'s
     boundary). -/
-private lemma G2_interior_via_segment
+lemma G2_interior_via_segment
     (G1 G2 : EvenGraph)
     (_h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -2116,7 +2116,7 @@ private lemma G2_interior_via_segment
 
 /-- For a refined-G1 segment `seg` containing `p` and `q ∈ seg.openInterior`,
     the segment from `p` to `q` is contained in `seg.toSet`. -/
-private lemma segment_pq_subset_refined_seg
+lemma segment_pq_subset_refined_seg
     (seg : LineSegment) (p q : Vector2D)
     (hp_seg : p ∈ seg.toSet) (hq_seg : q ∈ seg.toSet) :
     ∀ x ∈ (LineSegment.mk p q).toSet, x ∈ seg.toSet := by
@@ -2134,7 +2134,7 @@ private lemma segment_pq_subset_refined_seg
 /-- Case 1: If `p ∈ G1.toBoundarySet ∩ G2.interior`, then `p` lies on the
     intersection graph's boundary (because the refined-G1 segment containing `p`
     has its open interior in `G2.interior` and is therefore selected). -/
-private lemma case1_G1_bnd_G2_int_in_inter_bnd
+lemma case1_G1_bnd_G2_int_in_inter_bnd
     (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -2315,7 +2315,7 @@ private lemma case1_G1_bnd_G2_int_in_inter_bnd
     `p ∉ G2.interior`, while `p` avoids the intersection graph's segments and
     every ray from `p` (avoiding the intersection graph's vertices) has odd
     intersection-graph parity, we derive a contradiction. -/
-private lemma case2_contradiction
+lemma case2_contradiction
     (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -2636,7 +2636,7 @@ private lemma case2_contradiction
     in `G2.exterior` (by `same_G2_interior_status_on_segment`). These cannot
     overlap, so `p' ∈ seg_e.openInterior` is automatically off all selected
     refined-G1 segments. -/
-private lemma case3_contradiction
+lemma case3_contradiction
     (G1 G2 : EvenGraph)
     (h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet))
     (h_fin21 : Set.Finite (G2.toBoundarySet ∩ G1.toBoundarySet))
@@ -3011,7 +3011,7 @@ private lemma case3_contradiction
 
 /-- Swapping the order of `Graph.append` preserves IsEven (since `countP` is
     commutative under list append). -/
-private lemma append_isEven_iff (G1 G2 : Graph) :
+lemma append_isEven_iff (G1 G2 : Graph) :
     (G1.append G2).IsEven ↔ (G2.append G1).IsEven := by
   unfold Graph.IsEven
   constructor <;>
@@ -3022,7 +3022,7 @@ private lemma append_isEven_iff (G1 G2 : Graph) :
      exact this)
 
 /-- Swapping the order of `Graph.append` preserves the vertex set. -/
-private lemma append_toVertexSet_eq (G1 G2 : Graph) :
+lemma append_toVertexSet_eq (G1 G2 : Graph) :
     (G1.append G2).toVertexSet = (G2.append G1).toVertexSet := by
   ext v
   simp only [Graph.toVertexSet, Set.mem_setOf_eq, Graph.toVertices, List.mem_dedup,
@@ -3033,7 +3033,7 @@ private lemma append_toVertexSet_eq (G1 G2 : Graph) :
      tauto)
 
 /-- Swapping the order of `Graph.append` preserves the ray-segment crossing count. -/
-private lemma append_intersectionRayGraphSegmentsNumber_eq (r : Ray) (G1 G2 : Graph) :
+lemma append_intersectionRayGraphSegmentsNumber_eq (r : Ray) (G1 G2 : Graph) :
     intersectionRayGraphSegmentsNumber r (G1.append G2) =
     intersectionRayGraphSegmentsNumber r (G2.append G1) := by
   unfold intersectionRayGraphSegmentsNumber
@@ -3041,13 +3041,13 @@ private lemma append_intersectionRayGraphSegmentsNumber_eq (r : Ray) (G1 G2 : Gr
   exact Nat.add_comm _ _
 
 /-- Swapping the order of `Graph.append` preserves segment membership. -/
-private lemma append_segments_mem_iff {G1 G2 : Graph} {seg : LineSegment} :
+lemma append_segments_mem_iff {G1 G2 : Graph} {seg : LineSegment} :
     seg ∈ (G1.append G2).segments ↔ seg ∈ (G2.append G1).segments := by
   simp only [Graph.append_segments, List.mem_append]
   tauto
 
 /-- Swapping the order of `Graph.append` preserves `rayAvoidsGraphVertices`. -/
-private lemma append_rayAvoidsGraphVertices_iff (r : Ray) (G1 G2 : Graph) :
+lemma append_rayAvoidsGraphVertices_iff (r : Ray) (G1 G2 : Graph) :
     rayAvoidsGraphVertices r (G1.append G2) ↔ rayAvoidsGraphVertices r (G2.append G1) := by
   unfold rayAvoidsGraphVertices
   rw [append_toVertexSet_eq]

@@ -17,8 +17,8 @@ import Polygons.EvenGraphDecomposition
 # Multipolygon Intersection – Implementation
 
 Proof that the intersection of the interiors of two multipolygons (with
-per-polygon non-degenerate segments and finite boundary intersection) can be
-expressed as the interior of a single multipolygon.
+per-polygon non-degenerate segments) can be expressed as the interior of a
+single multipolygon.
 
 The argument mirrors `PolygonIntersectionProofs`:
 1. Convert each multipolygon to an even graph via `Multipolygon.toEvenGraph`.
@@ -45,25 +45,16 @@ theorem exists_multipolygon_inter_interior_eq_multipolygon_interior_impl
     (h1_len : ∀ poly ∈ m1.polygons, poly.vertices.length ≥ 2)
     (h2_len : ∀ poly ∈ m2.polygons, poly.vertices.length ≥ 2)
     (h1_nondeg : ∀ seg ∈ m1.segments, seg.p1 ≠ seg.p2)
-    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2)
-    (h_fin : Set.Finite (m1.toBoundarySet ∩ m2.toBoundarySet)) :
+    (h2_nondeg : ∀ seg ∈ m2.segments, seg.p1 ≠ seg.p2) :
     ∃ m : Multipolygon, m1.interior ∩ m2.interior = m.interior := by
   set G1 : EvenGraph := m1.toEvenGraph h1_len h1_nondeg with hG1_def
   set G2 : EvenGraph := m2.toEvenGraph h2_len h2_nondeg with hG2_def
-  have hb1 : G1.toBoundarySet = m1.toBoundarySet :=
-    Multipolygon.toEvenGraph_toBoundarySet_eq m1 h1_len h1_nondeg
-  have hb2 : G2.toBoundarySet = m2.toBoundarySet :=
-    Multipolygon.toEvenGraph_toBoundarySet_eq m2 h2_len h2_nondeg
   have hi1 : G1.interior = m1.interior :=
     Multipolygon.toEvenGraph_interior_eq m1 h1_len h1_nondeg
   have hi2 : G2.interior = m2.interior :=
     Multipolygon.toEvenGraph_interior_eq m2 h2_len h2_nondeg
-  have h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet) := by
-    rw [hb1, hb2]; exact h_fin
-  obtain ⟨h_even, h_interior_eq⟩ :=
-    evenGraphIntersection_isEven_and_interior_eq G1 G2 h_fin12
-  set Gint : EvenGraph :=
-    ⟨evenGraphIntersection G1 G2 h_fin12, h_even⟩ with hGint_def
+  obtain ⟨Gint, h_interior_eq⟩ :=
+    evenGraphIntersection_isEven_and_interior_eq G1 G2
   have hGint_int : Gint.interior = m1.interior ∩ m2.interior := by
     rw [h_interior_eq, hi1, hi2]
   obtain ⟨polyGraphs, h_polyGraphs, h_equiv⟩ :=

@@ -298,7 +298,7 @@
         setStatus(`Intersection: ${result.length} boundary component${result.length === 1 ? '' : 's'}.`);
       } else {
         const who = ["first", "second"][currentIdx];
-        setStatus(`Draw ${who} multipolygon: Tap canvas to add a vertex; tap the first vertex to close. Restriction: Any pair of segments from the two multipolygons can overlap/intersect at most in one point.`);
+        setStatus(`Draw ${who} multipolygon: Tap canvas to add a vertex; tap the first vertex to close.`);
       }
       updateButtons();
     }
@@ -375,7 +375,7 @@
       if (parsed === null) {
         result = [];
         alert(
-          "Lean precondition check failed:\nAny pair of segments from the two multipolygons can overlap/intersect at most in one point, each boundary component needs ≥ 2 vertices, every segment must have non-zero length."
+          "Lean precondition check failed:\nEach boundary component needs ≥ 2 vertices, every segment must have non-zero length."
         );
         // Stay in "drawing second multipolygon" mode so the user can fix it.
         currentIdx = 1;

@@ -62,7 +62,7 @@ theorem exists_polygons_inter_interior_eq_symmDiffAll_interiors_sdiff_boundaries
   have h_fin12 : Set.Finite (G1.toBoundarySet ∩ G2.toBoundarySet) := by
     rw [hb1, hb2]; exact h_fin
   obtain ⟨h_even, h_interior_eq⟩ :=
-    evenGraphIntersection_isEven_and_interior_eq G1 G2 h_fin12
+    evenGraphIntersection_isEven_and_interior_eq_fin G1 G2 h_fin12
   set Gint : EvenGraph :=
     ⟨evenGraphIntersection G1 G2 h_fin12, h_even⟩ with hGint_def
   have hGint_int : Gint.interior = poly1.interior ∩ poly2.interior := by

@@ -2063,6 +2063,136 @@ theorem interior_forall_eq_exists (G : EvenGraph) :
       h_same h_avoids₀ h_avoids h_seg_avoids
     omega
 
+/-- Generalization of `exists_ray_avoiding_graph_vertices` to two graphs: there
+    is a ray from `p` avoiding the vertices of both `G` and `G'`. -/
+private lemma exists_ray_avoiding_two_graph_vertices (p : Vector2D) (G G' : EvenGraph)
+    (h_not_vertex : ∀ v ∈ (G.toVertices ++ G'.toVertices), v ≠ p) :
+    ∃ r : Ray, r.origin = p ∧ rayAvoidsGraphVertices r G ∧ rayAvoidsGraphVertices r G' := by
+  -- Same construction as `exists_ray_avoiding_graph_vertices`, but the bad slopes
+  -- are collected from the union of the two vertex lists.
+  have : Infinite ℚ := Infinite.of_injective (fun n : ℕ => (n : ℚ)) Nat.cast_injective
+  let badSlopes : Finset ℚ := ((G.toVertices ++ G'.toVertices).filterMap fun v =>
+    if v.x > p.x then some ((v.y - p.y) / (v.x - p.x)) else none).toFinset
+  obtain ⟨q, hq⟩ := Finset.exists_not_mem badSlopes
+  have h_nonzero : (⟨1, q⟩ : Vector2D) ≠ ⟨0, 0⟩ := by
+    intro h; exact absurd (congrArg Vector2D.x h) (by norm_num)
+  refine ⟨⟨p, ⟨1, q⟩, h_nonzero⟩, rfl, ?_, ?_⟩ <;>
+    (rw [rayAvoidsGraphVertices, Set.eq_empty_iff_forall_not_mem]
+     intro v hv
+     simp only [Set.mem_inter_iff] at hv
+     obtain ⟨hv_ray, hv_vert⟩ := hv
+     simp only [Ray.toSet, Set.mem_setOf_eq] at hv_ray
+     simp only [Graph.toVertexSet, Set.mem_setOf_eq] at hv_vert
+     obtain ⟨t, ht_nonneg, hvx, hvy⟩ := hv_ray
+     simp only [mul_one] at hvx
+     have hv_mem : v ∈ (G.toVertices ++ G'.toVertices) := by
+       simp only [List.mem_append]
+       first | exact Or.inl hv_vert | exact Or.inr hv_vert
+     have hne : v ≠ p := h_not_vertex v hv_mem
+     have ht_eq : t = v.x - p.x := by linarith
+     by_cases h_gt : v.x > p.x
+     · have h_slope_mem : (v.y - p.y) / (v.x - p.x) ∈ badSlopes := by
+         simp only [badSlopes, List.mem_toFinset, List.mem_filterMap]
+         exact ⟨v, hv_mem, by simp [if_pos h_gt]⟩
+       have hvmy : v.y - p.y = t * q := by linarith
+       rw [ht_eq] at hvmy
+       have hvx_ne : v.x - p.x ≠ 0 := ne_of_gt (by linarith : v.x - p.x > 0)
+       have hq_eq : q = (v.y - p.y) / (v.x - p.x) := by
+         rw [eq_div_iff hvx_ne, mul_comm]; linarith
+       exact hq (hq_eq ▸ h_slope_mem)
+     · push_neg at h_gt
+       by_cases h_eq : v.x = p.x
+       · have ht_zero : t = 0 := by linarith
+         have hvy_eq : v.y = p.y := by
+           have := hvy; rw [ht_zero] at this; simp at this; exact this
+         exact hne (by cases v; cases p; simp_all)
+       · linarith [lt_of_le_of_ne h_gt h_eq])
+
+/-- If two even graphs have the same boundary and the same parity (for all rays
+    that avoid both graphs' vertices and start off the common boundary), then
+    they have the same interior. -/
+theorem interior_eq_of_boundary_and_parity (G G' : EvenGraph)
+    (h_bd : G.toBoundarySet = G'.toBoundarySet)
+    (h_par : ∀ r : Ray,
+        rayAvoidsGraphVertices r G → rayAvoidsGraphVertices r G' →
+        (∀ seg ∈ G.segments, pointAvoidsSegment r.origin seg) →
+        intersectionRayGraphSegmentsNumber r G % 2 =
+          intersectionRayGraphSegmentsNumber r G' % 2) :
+    G.interior = G'.interior := by
+  -- A point avoids all segments of a graph iff it is off the graph's boundary.
+  have avoids_iff : ∀ (H : EvenGraph) (p : Vector2D),
+      (∀ seg ∈ H.segments, pointAvoidsSegment p seg) ↔ p ∉ H.toBoundarySet := by
+    intro H p
+    simp only [pointAvoidsSegment, Graph.toBoundarySet, Set.mem_setOf_eq]
+    constructor
+    · intro h
+      rintro ⟨seg, hseg, hp⟩
+      exact h seg hseg hp
+    · intro h seg hseg hp
+      exact h ⟨seg, hseg, hp⟩
+  -- A point off the boundary is not equal to any vertex (vertices lie on segments).
+  have not_vertex_of_avoids : ∀ (H : EvenGraph) (p : Vector2D),
+      p ∉ H.toBoundarySet → ∀ v ∈ H.toVertices, v ≠ p := by
+    intro H p hp v hv h_eq
+    subst h_eq
+    obtain ⟨seg, h_seg, h_on⟩ :=
+      vertex_on_some_graph_segment H v (H.incident_count_pos v hv)
+    exact hp ⟨seg, h_seg, h_on⟩
+  -- The interior is the FORALL-set by definition.
+  have interior_def : ∀ (H : EvenGraph), H.interior =
+      { p : Vector2D |
+          (∀ seg ∈ H.segments, pointAvoidsSegment p seg) ∧
+          ∀ r : Ray, r.origin = p → rayAvoidsGraphVertices r H →
+            intersectionRayGraphSegmentsNumber r H % 2 = 1 } := fun H => rfl
+  -- Symmetric helper proving one inclusion. `h_par'` is `h_par` possibly swapped.
+  have one_dir : ∀ (A B : EvenGraph),
+      A.toBoundarySet = B.toBoundarySet →
+      (∀ r : Ray, rayAvoidsGraphVertices r A → rayAvoidsGraphVertices r B →
+        (∀ seg ∈ A.segments, pointAvoidsSegment r.origin seg) →
+        intersectionRayGraphSegmentsNumber r A % 2 =
+          intersectionRayGraphSegmentsNumber r B % 2) →
+      A.interior ⊆ B.interior := by
+    intro A B hAB hpar p hp
+    rw [interior_def A, Set.mem_setOf_eq] at hp
+    obtain ⟨h_avoidA, h_forallA⟩ := hp
+    -- p is off A's boundary, hence off B's boundary.
+    have hp_notA : p ∉ A.toBoundarySet := (avoids_iff A p).mp h_avoidA
+    have hp_notB : p ∉ B.toBoundarySet := by rw [← hAB]; exact hp_notA
+    have h_avoidB : ∀ seg ∈ B.segments, pointAvoidsSegment p seg :=
+      (avoids_iff B p).mpr hp_notB
+    -- p is not a vertex of A or B.
+    have h_not_vertex : ∀ v ∈ (A.toVertices ++ B.toVertices), v ≠ p := by
+      intro v hv
+      rcases List.mem_append.mp hv with hvA | hvB
+      · exact not_vertex_of_avoids A p hp_notA v hvA
+      · exact not_vertex_of_avoids B p hp_notB v hvB
+    -- A ray from p avoiding both graphs' vertices.
+    obtain ⟨r, h_origin, h_avoids_r_A, h_avoids_r_B⟩ :=
+      exists_ray_avoiding_two_graph_vertices p A B h_not_vertex
+    -- That ray has odd parity for A (from membership of p), transferred to B.
+    have h_oddA : intersectionRayGraphSegmentsNumber r A % 2 = 1 :=
+      h_forallA r h_origin h_avoids_r_A
+    have h_seg_avoids_r : ∀ seg ∈ A.segments, pointAvoidsSegment r.origin seg := by
+      rw [h_origin]; exact h_avoidA
+    have h_parB : intersectionRayGraphSegmentsNumber r B % 2 = 1 := by
+      have := hpar r h_avoids_r_A h_avoids_r_B h_seg_avoids_r
+      omega
+    -- Conclude membership in B's interior via the EXISTS characterization.
+    rw [interior_def B, interior_forall_eq_exists B, Set.mem_setOf_eq]
+    exact ⟨h_avoidB, r, h_origin, h_avoids_r_B, h_parB⟩
+  apply Set.Subset.antisymm
+  · exact one_dir G G' h_bd h_par
+  · refine one_dir G' G h_bd.symm ?_
+    intro r h_avoidsG' h_avoidsG h_seg
+    -- Need parity equality with A = G', B = G; `h_par` needs the avoid-G hypothesis.
+    -- `h_seg` avoids G' segments; transfer to G segments via equal boundaries.
+    have h_seg_G : ∀ seg ∈ G.segments, pointAvoidsSegment r.origin seg := by
+      have hnotG' : r.origin ∉ G'.toBoundarySet := (avoids_iff G' r.origin).mp h_seg
+      have hnotG : r.origin ∉ G.toBoundarySet := by rw [h_bd]; exact hnotG'
+      exact (avoids_iff G r.origin).mpr hnotG
+    have := h_par r h_avoidsG h_avoidsG' h_seg_G
+    omega
+
 /-! ### Polygon to even graph -/
 
 /-- Helper: elements of the zip-pairs from polygon segment construction
